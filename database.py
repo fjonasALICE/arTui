@@ -61,11 +61,50 @@ class ArticleDatabase:
                 )
             """)
             
+            # Tags table - stores unique tags
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS tags (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            """)
+            
+            # Article tags table - many-to-many relationship between articles and tags
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS article_tags (
+                    article_id TEXT NOT NULL,
+                    tag_id INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (article_id, tag_id),
+                    FOREIGN KEY (article_id) REFERENCES articles (id),
+                    FOREIGN KEY (tag_id) REFERENCES tags (id)
+                )
+            """)
+            
             # Create indexes for performance
             conn.execute("CREATE INDEX IF NOT EXISTS idx_articles_published ON articles (published_date)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_articles_categories ON articles (categories)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_status_saved ON article_status (is_saved)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_status_viewed ON article_status (is_viewed)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tags_name ON tags (name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_article_tags_article ON article_tags (article_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_article_tags_tag ON article_tags (tag_id)")
+            
+            # Verify tables were created
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            tables = [row[0] for row in cursor.fetchall()]
+            print(f"DEBUG: Database tables: {tables}")
+            
+            # Check if tags table has the right structure
+            cursor = conn.execute("PRAGMA table_info(tags)")
+            tag_columns = [col[1] for col in cursor.fetchall()]
+            print(f"DEBUG: Tags table columns: {tag_columns}")
+            
+            # Check if article_tags table has the right structure
+            cursor = conn.execute("PRAGMA table_info(article_tags)")
+            article_tags_columns = [col[1] for col in cursor.fetchall()]
+            print(f"DEBUG: Article_tags table columns: {article_tags_columns}")
             
             # Run database migrations
             self._migrate_database()
@@ -185,9 +224,11 @@ class ArticleDatabase:
         """Get articles by category with status information."""
         with self.get_connection() as conn:
             cursor = conn.execute("""
-                SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at
+                SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
+                       CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
                 FROM articles a
                 LEFT JOIN article_status s ON a.id = s.article_id
+                LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
                 WHERE a.categories LIKE ?
                 ORDER BY a.published_date DESC
                 LIMIT ?
@@ -200,9 +241,11 @@ class ArticleDatabase:
         with self.get_connection() as conn:
             search_term = f"%{query}%"
             cursor = conn.execute("""
-                SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at
+                SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
+                       CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
                 FROM articles a
                 LEFT JOIN article_status s ON a.id = s.article_id
+                LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
                 WHERE a.title LIKE ? OR a.authors LIKE ? OR a.summary LIKE ?
                 ORDER BY a.published_date DESC
                 LIMIT ?
@@ -214,9 +257,11 @@ class ArticleDatabase:
         """Get all saved articles."""
         with self.get_connection() as conn:
             cursor = conn.execute("""
-                SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at
+                SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
+                       CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
                 FROM articles a
                 INNER JOIN article_status s ON a.id = s.article_id
+                LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
                 WHERE s.is_saved = 1
                 ORDER BY s.saved_at DESC
             """)
@@ -231,9 +276,11 @@ class ArticleDatabase:
         placeholders = ",".join("?" * len(article_ids))
         with self.get_connection() as conn:
             cursor = conn.execute(f"""
-                SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at
+                SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
+                       CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
                 FROM articles a
                 LEFT JOIN article_status s ON a.id = s.article_id
+                LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
                 WHERE a.id IN ({placeholders})
                 ORDER BY a.published_date DESC
             """, article_ids)
@@ -490,3 +537,133 @@ class ArticleDatabase:
                 WHERE s.is_saved = 1 AND (s.is_viewed IS NULL OR s.is_viewed = 0)
             """)
             return cursor.fetchone()['count'] 
+
+    # Tag-related methods
+    
+    def add_tag(self, name: str) -> int:
+        """Add a new tag if it doesn't exist. Returns tag ID."""
+        with self.get_connection() as conn:
+            now = datetime.now().isoformat()
+            try:
+                cursor = conn.execute("""
+                    INSERT INTO tags (name, created_at) VALUES (?, ?)
+                """, (name, now))
+                tag_id = cursor.lastrowid
+                print(f"DEBUG: Created new tag '{name}' with ID {tag_id}")
+                return tag_id
+            except sqlite3.IntegrityError:
+                # Tag already exists, get its ID
+                cursor = conn.execute("SELECT id FROM tags WHERE name = ?", (name,))
+                result = cursor.fetchone()
+                if result:
+                    tag_id = result['id']
+                    print(f"DEBUG: Found existing tag '{name}' with ID {tag_id}")
+                    return tag_id
+                else:
+                    print(f"DEBUG: ERROR - Tag '{name}' should exist but wasn't found")
+                    raise
+    
+    def get_all_tags(self) -> List[Dict]:
+        """Get all tags sorted by name."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT t.*, COUNT(at.article_id) as article_count
+                FROM tags t
+                LEFT JOIN article_tags at ON t.id = at.tag_id
+                GROUP BY t.id, t.name, t.created_at
+                ORDER BY t.name
+            """)
+            results = [dict(row) for row in cursor.fetchall()]
+            print(f"DEBUG: get_all_tags() returned {len(results)} tags: {[r['name'] for r in results]}")
+            return results
+    
+    def add_article_tag(self, article_id: str, tag_name: str) -> bool:
+        """Associate a tag with an article. Returns True if added."""
+        print(f"DEBUG: add_article_tag called with article_id={article_id}, tag_name={tag_name}")
+        tag_id = self.add_tag(tag_name)
+        print(f"DEBUG: Got tag_id {tag_id} for tag '{tag_name}'")
+        now = datetime.now().isoformat()
+        
+        with self.get_connection() as conn:
+            try:
+                conn.execute("""
+                    INSERT INTO article_tags (article_id, tag_id, created_at)
+                    VALUES (?, ?, ?)
+                """, (article_id, tag_id, now))
+                print(f"DEBUG: Successfully linked article {article_id} to tag '{tag_name}' (ID: {tag_id})")
+                return True
+            except sqlite3.IntegrityError as e:
+                # Relationship already exists
+                print(f"DEBUG: Article-tag relationship already exists: {e}")
+                return False
+    
+    def remove_article_tag(self, article_id: str, tag_name: str) -> bool:
+        """Remove a tag from an article. Returns True if removed."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                DELETE FROM article_tags 
+                WHERE article_id = ? AND tag_id = (
+                    SELECT id FROM tags WHERE name = ?
+                )
+            """, (article_id, tag_name))
+            return cursor.rowcount > 0
+    
+    def get_article_tags(self, article_id: str) -> List[str]:
+        """Get all tags for a specific article."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT t.name
+                FROM tags t
+                INNER JOIN article_tags at ON t.id = at.tag_id
+                WHERE at.article_id = ?
+                ORDER BY t.name
+            """, (article_id,))
+            tags = [row['name'] for row in cursor.fetchall()]
+            print(f"DEBUG: get_article_tags for {article_id}: {tags}")
+            return tags
+    
+    def get_articles_by_tag(self, tag_name: str, limit: int = 100) -> List[Dict]:
+        """Get articles with a specific tag."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
+                       1 as has_tags
+                FROM articles a
+                LEFT JOIN article_status s ON a.id = s.article_id
+                INNER JOIN article_tags at ON a.id = at.article_id
+                INNER JOIN tags t ON at.tag_id = t.id
+                WHERE t.name = ?
+                ORDER BY a.published_date DESC
+                LIMIT ?
+            """, (tag_name, limit))
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def get_unread_count_by_tag(self, tag_name: str) -> int:
+        """Get count of unread articles for a specific tag."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count
+                FROM articles a
+                LEFT JOIN article_status s ON a.id = s.article_id
+                INNER JOIN article_tags at ON a.id = at.article_id
+                INNER JOIN tags t ON at.tag_id = t.id
+                WHERE t.name = ? AND (s.is_viewed IS NULL OR s.is_viewed = 0)
+            """, (tag_name,))
+            return cursor.fetchone()['count']
+    
+    def cleanup_orphan_tags(self) -> int:
+        """Remove tags that are no longer associated with any articles. Returns number of tags removed."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                DELETE FROM tags
+                WHERE id NOT IN (SELECT DISTINCT tag_id FROM article_tags)
+            """)
+            return cursor.rowcount
+    
+    def article_has_tags(self, article_id: str) -> bool:
+        """Check if an article has any tags."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT 1 FROM article_tags WHERE article_id = ? LIMIT 1
+            """, (article_id,))
+            return cursor.fetchone() is not None 

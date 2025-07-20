@@ -7,6 +7,7 @@ import subprocess
 import json
 import requests
 import pyperclip
+import re
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -103,6 +104,142 @@ class BibtexPopupScreen(ModalScreen):
             self.dismiss()
 
 
+class TagPopupScreen(ModalScreen):
+    """Screen to manage tags for an article."""
+
+    def __init__(self, article_id, article_title, existing_tags, all_tags, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.article_id = article_id
+        self.article_title = article_title
+        self.existing_tags = set(existing_tags) if existing_tags else set()
+        self.all_tags = all_tags if all_tags else []
+        self.checkboxes = {}
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="tag_popup_dialog"):
+            yield Static(f"Manage Tags", id="tag_popup_title")
+            yield Static(f"Article: {self.article_title[:60]}{'...' if len(self.article_title) > 60 else ''}", 
+                        id="tag_popup_article")
+            
+            # New tag input
+            with Horizontal(id="new_tag_container"):
+                yield Input(placeholder="Enter new tag name...", id="new_tag_input")
+                yield Button("Add", variant="primary", id="add_tag_button")
+            
+            # Existing tags
+            with VerticalScroll(id="tags_scroll"):
+                if self.all_tags:
+                    for tag_data in self.all_tags:
+                        tag_name = tag_data['name']
+                        sanitized_tag_name = re.sub(r'[^a-zA-Z0-9_-]', '_', tag_name)
+                        is_checked = tag_name in self.existing_tags
+                        checkbox = Checkbox(f"{tag_name} ({tag_data['article_count']})", 
+                                          value=is_checked, 
+                                          id=f"tag_checkbox_{sanitized_tag_name}")
+                        self.checkboxes[tag_name] = checkbox
+                        yield checkbox
+                else:
+                    yield Static("No tags exist yet. Create one above.", id="no_tags_message")
+            
+            with Horizontal(id="tag_buttons"):
+                yield Button("Save", variant="primary", id="save_tags_button")
+                yield Button("Cancel", id="cancel_tags_button")
+
+    def on_mount(self) -> None:
+        self.query_one("#new_tag_input", Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        print(f"DEBUG: TagPopupScreen button pressed: {event.button.id}")
+        if event.button.id == "cancel_tags_button":
+            print("DEBUG: Cancel button clicked")
+            self.dismiss()
+        elif event.button.id == "save_tags_button":
+            print("DEBUG: Save button clicked, calling _save_tags")
+            self._save_tags()
+        elif event.button.id == "add_tag_button":
+            print("DEBUG: Add button clicked")
+            self._add_new_tag()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "new_tag_input":
+            self._add_new_tag()
+
+    def _add_new_tag(self) -> None:
+        """Add a new tag and refresh the tag list."""
+        print("DEBUG: _add_new_tag called")
+        new_tag_input = self.query_one("#new_tag_input", Input)
+        tag_name = new_tag_input.value.strip()
+        print(f"DEBUG: New tag name: '{tag_name}'")
+        
+        if not tag_name:
+            print("DEBUG: Empty tag name, returning")
+            return
+            
+        # Check if tag already exists
+        if any(tag['name'].lower() == tag_name.lower() for tag in self.all_tags):
+            self.notify(f"Tag '{tag_name}' already exists", severity="warning")
+            new_tag_input.value = ""
+            print(f"DEBUG: Tag '{tag_name}' already exists")
+            return
+        
+        # Add to all_tags list and create checkbox
+        new_tag_data = {'name': tag_name, 'article_count': 0}
+        self.all_tags.append(new_tag_data)
+        print(f"DEBUG: Added to all_tags list: {new_tag_data}")
+        
+        # Create and add checkbox
+        sanitized_tag_name = re.sub(r'[^a-zA-Z0-9_-]', '_', tag_name)
+        checkbox = Checkbox(f"{tag_name} (0)", value=True, id=f"tag_checkbox_{sanitized_tag_name}")
+        self.checkboxes[tag_name] = checkbox
+        print(f"DEBUG: Created checkbox for '{tag_name}', checked: {checkbox.value}")
+        
+        # Remove no tags message if it exists
+        try:
+            no_tags = self.query_one("#no_tags_message")
+            no_tags.remove()
+            print("DEBUG: Removed 'no tags' message")
+        except:
+            print("DEBUG: No 'no tags' message to remove")
+            pass
+            
+        # Add checkbox to scroll area
+        scroll_area = self.query_one("#tags_scroll", VerticalScroll)
+        scroll_area.mount(checkbox)
+        print("DEBUG: Mounted checkbox to scroll area")
+        
+        new_tag_input.value = ""
+        self.notify(f"Added tag '{tag_name}'")
+
+    def _save_tags(self) -> None:
+        """Save the current tag selections."""
+        print("DEBUG: _save_tags called")
+        selected_tags = set()
+        
+        print(f"DEBUG: checkboxes: {list(self.checkboxes.keys())}")
+        
+        # Check which tags are selected
+        for tag_name, checkbox in self.checkboxes.items():
+            print(f"DEBUG: Tag '{tag_name}': value={checkbox.value}")
+            if checkbox.value:
+                selected_tags.add(tag_name)
+        
+        print(f"DEBUG: selected_tags: {selected_tags}")
+        print(f"DEBUG: existing_tags: {self.existing_tags}")
+        
+        # Return the changes
+        tags_to_add = selected_tags - self.existing_tags
+        tags_to_remove = self.existing_tags - selected_tags
+        
+        print(f"DEBUG: tags_to_add: {tags_to_add}")
+        print(f"DEBUG: tags_to_remove: {tags_to_remove}")
+        
+        self.dismiss((tags_to_add, tags_to_remove))
+
+    def on_key(self, event) -> None:
+        if event.key == "escape":
+            self.dismiss()
+
+
 class ArxivReader(App):
     """A Textual app to view arXiv articles."""
 
@@ -119,8 +256,14 @@ class ArxivReader(App):
         ("c", "show_selection_popup", "Select View"),
         ("r", "refresh_articles", "Refresh"),
         ("i", "show_inspire_citation", "Show INSPIRE Citation"),
+        ("t", "manage_tags", "Manage Tags"),
         ("q", "quit", "Quit"),
     ]
+
+    def on_key(self, event) -> None:
+        """Debug key presses."""
+        print(f"DEBUG: Key pressed: {event.key}")
+        # Don't call super() to avoid interfering with normal key handling
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -130,7 +273,7 @@ class ArxivReader(App):
         self.current_selection = None
         self.global_search_enabled = False # New attribute for global search
         self.current_results_from_global = False # Track if current results are from global search
-        # Initialize database
+        # Initialize database (creates database file if it doesn't exist)
         self.db = ArticleDatabase()
         # Migrate existing data from text files
         migration_stats = self.db.migrate_from_text_files(SAVED_ARTICLES_FILE, VIEWED_ARTICLES_FILE)
@@ -155,30 +298,51 @@ class ArxivReader(App):
                     classes="menu_item",
                 )
 
-                if self.config["filters"]:
-                    yield Static("Filters", classes="pane_title")
-                    for name in self.config["filters"]:
-                        # Get unread count for this filter
-                        filter_config = self.config["filters"][name]
-                        unread_count = self.db.get_unread_count_by_filter(filter_config)
-                        filter_text = f"{name} ({unread_count})" if unread_count > 0 else name
-                        
-                        yield Static(
-                            filter_text,
-                            id=f"filter_{name.replace(' ', '_')}",
-                            classes="menu_item",
-                        )
+                with Vertical(id="tags_container"):
+                    # Tags section
+                    all_tags = self.db.get_all_tags()
+                    if all_tags:
+                        yield Static("Tags", classes="pane_title")
+                        for tag in all_tags:
+                            # Get unread count for this tag
+                            unread_count = self.db.get_unread_count_by_tag(tag['name'])
+                            tag_text = f"{tag['name']} ({unread_count})" if unread_count > 0 else tag['name']
+                            sanitized_tag_name = re.sub(r'[^a-zA-Z0-9_-]', '_', tag['name'])
+                            
+                            tag_widget = Static(
+                                tag_text,
+                                id=f"tag_{sanitized_tag_name}",
+                                classes="menu_item",
+                            )
+                            tag_widget.original_tag_name = tag['name']
+                            yield tag_widget
 
-                if self.config["categories"]:
-                    yield Static("Categories", classes="pane_title")
-                    for name, code in self.config["categories"].items():
-                        # Get unread count for this category
-                        unread_count = self.db.get_unread_count_by_category(code)
-                        category_text = f"{name} ({unread_count})" if unread_count > 0 else name
-                        
-                        yield Static(
-                            category_text, id=f"cat_{code}", classes="menu_item"
-                        )
+                with Vertical(id="filters_container"):
+                    if self.config["filters"]:
+                        yield Static("Filters", classes="pane_title")
+                        for name in self.config["filters"]:
+                            # Get unread count for this filter
+                            filter_config = self.config["filters"][name]
+                            unread_count = self.db.get_unread_count_by_filter(filter_config)
+                            filter_text = f"{name} ({unread_count})" if unread_count > 0 else name
+                            
+                            yield Static(
+                                filter_text,
+                                id=f"filter_{name.replace(' ', '_')}",
+                                classes="menu_item",
+                            )
+
+                with Vertical(id="categories_container"):
+                    if self.config["categories"]:
+                        yield Static("Categories", classes="pane_title")
+                        for name, code in self.config["categories"].items():
+                            # Get unread count for this category
+                            unread_count = self.db.get_unread_count_by_category(code)
+                            category_text = f"{name} ({unread_count})" if unread_count > 0 else name
+                            
+                            yield Static(
+                                category_text, id=f"cat_{code}", classes="menu_item"
+                            )
 
             with Vertical(id="right_pane"):
                 with Horizontal(id="search_container"):
@@ -197,6 +361,20 @@ class ArxivReader(App):
             saved_text = f"Saved Articles ({saved_unread_count})" if saved_unread_count > 0 else "Saved Articles"
             saved_widget = self.query_one("#saved_articles_filter", Static)
             saved_widget.update(saved_text)
+            
+            # Update Tag counts
+            all_tags = self.db.get_all_tags()
+            for tag in all_tags:
+                unread_count = self.db.get_unread_count_by_tag(tag['name'])
+                tag_text = f"{tag['name']} ({unread_count})" if unread_count > 0 else tag['name']
+                sanitized_tag_name = re.sub(r'[^a-zA-Z0-9_-]', '_', tag['name'])
+                
+                tag_widget_id = f"tag_{sanitized_tag_name}"
+                try:
+                    tag_widget = self.query_one(f"#{tag_widget_id}", Static)
+                    tag_widget.update(tag_text)
+                except Exception:
+                    pass  # Widget might not exist yet
             
             # Update Filter counts
             if self.config["filters"]:
@@ -235,12 +413,8 @@ class ArxivReader(App):
         table.add_column("S", width=3)
         table.add_columns("Title", "Authors", "Published")
 
-        # Start background fetch of articles
-        self.startup_fetch_articles()
-
-        # Also trigger the same refresh as the 'r' shortcut
+        # Run the same refresh as pressing 'r' - fetches articles and updates UI
         self.manual_refresh_articles()
-        
 
 
         # Automatically load the first filter or category
@@ -309,6 +483,15 @@ class ArxivReader(App):
             new_selection = widget_id[len("filter_") :].replace("_", " ")
         elif widget_id.startswith("cat_"):
             new_selection = widget_id[len("cat_") :]
+        elif widget_id.startswith("tag_"):
+            if hasattr(widget, 'original_tag_name'):
+                new_selection = f"tag_{widget.original_tag_name}"
+            else:
+                # Fallback for safety, though it shouldn't be needed
+                sanitized_id_part = widget_id[len('tag_'):]
+                # This fallback is imperfect as we can't perfectly reverse sanitization
+                # but it's better than crashing.
+                new_selection = f"tag_{sanitized_id_part}"
         elif widget_id == "saved_articles_filter":
             new_selection = "saved_articles_filter"
 
@@ -382,35 +565,6 @@ class ArxivReader(App):
         # Set flag to indicate results are from local database
         self.current_results_from_global = False
         self.fetch_articles_from_db()
-
-    @work(exclusive=True, thread=True)
-    def startup_fetch_articles(self) -> None:
-        """Background task to fetch articles for all categories at startup."""
-        try:
-            self.call_from_thread(
-                self.notify, 
-                "Fetching latest articles in background...", 
-                title="Startup", 
-                timeout=3
-            )
-            # Fetch recent articles (lighter startup option)
-            results = self.fetcher.fetch_recent_articles(days=7, max_per_category=100)
-            total_new = sum(results.values())
-            if total_new > 0:
-                self.call_from_thread(
-                    self.notify, 
-                    f"Added {total_new} new articles to database", 
-                    title="Fetch Complete", 
-                    timeout=5
-                )
-        except Exception as e:
-            self.call_from_thread(
-                self.notify,
-                f"Background fetch error: {e}",
-                title="Error",
-                severity="warning",
-                timeout=5
-            )
 
     @work(exclusive=True, thread=True)
     def manual_refresh_articles(self) -> None:
@@ -497,7 +651,25 @@ class ArxivReader(App):
                 db_results = self.db.search_articles(self.current_query, limit=100)
             
             elif self.current_selection:
-                if self.current_selection in self.config.get("filters", {}):
+                if self.current_selection.startswith("tag_"):
+                    # Handle tag selection
+                    tag_name = self.current_selection[4:]  # Remove "tag_" prefix
+                    if self.current_query:
+                        # Search within tagged articles
+                        tagged_results = self.db.get_articles_by_tag(tag_name, limit=200)
+                        # Filter by search query
+                        search_lower = self.current_query.lower()
+                        db_results = [
+                            result for result in tagged_results 
+                            if (search_lower in result['title'].lower() or 
+                                search_lower in result['summary'].lower() or
+                                search_lower in result['authors'].lower())
+                        ][:100]
+                    else:
+                        # Just get articles for this tag
+                        db_results = self.db.get_articles_by_tag(tag_name, limit=100)
+                
+                elif self.current_selection in self.config.get("filters", {}):
                     # Handle filter - search by filter criteria
                     filter_details = self.config["filters"][self.current_selection]
                     search_query = self.current_query or ""
@@ -601,6 +773,7 @@ class ArxivReader(App):
                     # Add status information
                     self.is_saved = bool(db_result.get('is_saved', 0))
                     self.is_viewed = bool(db_result.get('is_viewed', 0))
+                    self.has_tags = bool(db_result.get('has_tags', 0))
                 
                 def get_short_id(self):
                     return self.id
@@ -644,13 +817,26 @@ class ArxivReader(App):
             if len(authors) > 40:
                 authors = authors[:37] + "..."
 
+            # Build status string with multiple indicators
+            status_parts = []
+            
             # Use database status information
             if hasattr(result, 'is_saved') and result.is_saved:
-                status = "[red]s[/red]"
+                status_parts.append("[red]s[/red]")
             elif hasattr(result, 'is_viewed') and result.is_viewed:
-                status = " "
+                status_parts.append(" ")
             else:
-                status = "●"
+                status_parts.append("●")
+            
+            # Add tag indicator
+            if hasattr(result, 'has_tags') and result.has_tags:
+                status_parts.append("[blue]t[/blue]")
+            
+            # Join status parts or use first one if only one
+            if len(status_parts) > 1:
+                status = "".join(status_parts)
+            else:
+                status = status_parts[0] if status_parts else " "
 
             table.add_row(
                 status, title, authors, result.published.strftime("%Y-%m-%d")
@@ -686,12 +872,21 @@ class ArxivReader(App):
             pdf_url = selected_article.pdf_url
             categories = ", ".join(selected_article.categories)
             
+            # Get article tags
+            article_id = selected_article.get_short_id()
+            tags = self.db.get_article_tags(article_id)
+            tags_display = ""
+            if tags:
+                tags_str = ", ".join(tags)
+                tags_display = f"\n\n[bold]Tags:[/] {tags_str}"
+
             content = (
                 f"[bold]{selected_article.title}[/bold]\n\n"
                 f"[italic]{authors}[/italic]\n\n"
                 f"[bold]Categories:[/] {categories}\n\n"
                 f"{summary}\n\n"
                 f"Link: [@click=\"app.open_link('{pdf_url}')\"]{pdf_url}[/]"
+                f"{tags_display}"
             )
 
             abstract_view.update(content)
@@ -888,6 +1083,164 @@ class ArxivReader(App):
         else:
             self.notify("No article selected", severity="warning")
 
+    def action_manage_tags(self) -> None:
+        """Show tag management popup for the currently selected article."""
+        print("DEBUG: action_manage_tags called - 't' key was pressed")
+        table = self.query_one("#results_table", DataTable)
+        cursor_row = table.cursor_row
+        print(f"DEBUG: cursor_row = {cursor_row}")
+        if cursor_row is not None and 0 <= cursor_row < len(self.search_results):
+            selected_article = self.search_results[cursor_row]
+            print(f"DEBUG: Selected article: {selected_article.get_short_id()}")
+            self.show_tag_popup(selected_article)
+        else:
+            print(f"DEBUG: No valid article selected - cursor_row={cursor_row}, search_results length={len(self.search_results)}")
+            self.notify("No article selected", severity="warning")
+
+    def show_tag_popup(self, article) -> None:
+        """Show the tag management popup for an article."""
+        article_id = article.get_short_id()
+        print(f"DEBUG: show_tag_popup called for article {article_id}")
+        existing_tags = self.db.get_article_tags(article_id)
+        print(f"DEBUG: Existing tags for article: {existing_tags}")
+        all_tags = self.db.get_all_tags()
+        print(f"DEBUG: All tags in database: {[tag['name'] for tag in all_tags]}")
+        
+        self.push_screen(
+            TagPopupScreen(article_id, article.title, existing_tags, all_tags),
+            self.tag_popup_callback
+        )
+
+    def tag_popup_callback(self, result) -> None:
+        """Handle the result from the tag popup."""
+        print(f"DEBUG: tag_popup_callback called with result: {result}")
+        
+        if result is None:
+            print("DEBUG: result is None, returning")
+            return
+            
+        tags_to_add, tags_to_remove = result
+        print(f"DEBUG: tags_to_add: {tags_to_add}, tags_to_remove: {tags_to_remove}")
+        
+        table = self.query_one("#results_table", DataTable)
+        cursor_row = table.cursor_row
+        
+        if cursor_row is not None and 0 <= cursor_row < len(self.search_results):
+            selected_article = self.search_results[cursor_row]
+            article_id = selected_article.get_short_id()
+            print(f"DEBUG: Processing article {article_id}")
+            
+            # For global search results, we need to add the article to database first
+            if self.current_results_from_global:
+                try:
+                    if not self.db.add_article(selected_article):
+                        # Article already exists in database, that's fine
+                        pass
+                except Exception as e:
+                    self.notify(f"Error adding article to database: {e}", severity="error")
+                    return
+            
+            # Remove tags
+            for tag_name in tags_to_remove:
+                print(f"DEBUG: Removing tag '{tag_name}' from article {article_id}")
+                success = self.db.remove_article_tag(article_id, tag_name)
+                print(f"DEBUG: Remove result: {success}")
+            
+            # Add tags
+            for tag_name in tags_to_add:
+                print(f"DEBUG: Adding tag '{tag_name}' to article {article_id}")
+                success = self.db.add_article_tag(article_id, tag_name)
+                print(f"DEBUG: Add result: {success}")
+            
+            # Cleanup any orphan tags
+            if tags_to_remove:
+                removed_count = self.db.cleanup_orphan_tags()
+                if removed_count > 0:
+                    self.notify(f"Removed {removed_count} unused tag(s).", timeout=3)
+
+            # Update article's has_tags status
+            if tags_to_add or tags_to_remove:
+                selected_article.has_tags = self.db.article_has_tags(article_id)
+                print(f"DEBUG: Article has_tags after update: {selected_article.has_tags}")
+                
+                # Update the table row status to show/hide "t" indicator
+                self._update_table_row_status(cursor_row, selected_article)
+                
+                # Reload left panel to show new tags if any were created
+                self.call_later(self.reload_left_panel)
+            
+            if tags_to_add or tags_to_remove:
+                self.notify(f"Updated tags for {article_id}")
+        else:
+            print(f"DEBUG: Invalid cursor_row: {cursor_row}, search_results length: {len(self.search_results)}")
+
+    def _update_table_row_status(self, row_index: int, article) -> None:
+        """Update the status column for a specific table row."""
+        table = self.query_one("#results_table", DataTable)
+        
+        # Build status string with multiple indicators
+        status_parts = []
+        
+        # Use database status information
+        if hasattr(article, 'is_saved') and article.is_saved:
+            status_parts.append("[red]s[/red]")
+        elif hasattr(article, 'is_viewed') and article.is_viewed:
+            status_parts.append(" ")
+        else:
+            status_parts.append("●")
+        
+        # Add tag indicator
+        if hasattr(article, 'has_tags') and article.has_tags:
+            status_parts.append("[blue]t[/blue]")
+        
+        # Join status parts or use first one if only one
+        if len(status_parts) > 1:
+            status = "".join(status_parts)
+        else:
+            status = status_parts[0] if status_parts else " "
+            
+        table.update_cell_at(Coordinate(row_index, 0), status)
+
+    def reload_left_panel(self) -> None:
+        """Reload the tags section in the left panel to show new tags."""
+        print("DEBUG: reload_left_panel called")
+        
+        # Store current selection to re-apply it
+        current_selection_id = None
+        selected_widget = self.query(".menu_item.selected").first()
+        if selected_widget:
+            current_selection_id = selected_widget.id
+        
+        # Get the tags container and rebuild it
+        tags_container = self.query_one("#tags_container", Vertical)
+        tags_container.remove_children()
+        
+        # Re-add all items in the correct order
+        all_tags = self.db.get_all_tags()
+        if all_tags:
+            tags_container.mount(Static("Tags", classes="pane_title"))
+            for tag in all_tags:
+                unread_count = self.db.get_unread_count_by_tag(tag['name'])
+                tag_text = f"{tag['name']} ({unread_count})" if unread_count > 0 else tag['name']
+                sanitized_tag_name = re.sub(r'[^a-zA-Z0-9_-]', '_', tag['name'])
+                tag_widget = Static(
+                    tag_text,
+                    id=f"tag_{sanitized_tag_name}",
+                    classes="menu_item",
+                )
+                tag_widget.original_tag_name = tag['name']
+                tags_container.mount(tag_widget)
+        
+        # Re-select the previously active item
+        if current_selection_id:
+            try:
+                newly_created_widget = self.query_one(f"#{current_selection_id}", Static)
+                newly_created_widget.add_class("selected")
+            except:
+                pass # It might have been a tag that was deleted, for example
+
+        self.notify("Tags updated successfully!", timeout=3)
+        
     @work(exclusive=True, thread=True)
     def fetch_inspire_citation(self, article) -> None:
         """Worker to fetch bibtex citation from inspire-hep."""

@@ -1,6 +1,6 @@
 # ArXiv Reader
 
-A Terminal User Interface (TUI) application for browsing, searching, and managing arXiv research papers. Built with Python and Textual, featuring a persistent SQLite database. This tool was built with AI to test AI capabilities and to build something useful for myself.
+A Terminal User Interface (TUI) application for browsing, searching, and managing arXiv research papers. Built with Python and Textual, featuring a persistent SQLite database. This tool was built with AI to test AI capabilities and to build something useful for myself. The code is not pretty and I simply wanted to create a usable tool for myself. 
 
 WORK IN PROGRESS
 
@@ -10,6 +10,7 @@ WORK IN PROGRESS
 - **🚀 Smart Fetching**: Automatic background fetching of recent articles (last 7 days)
 - **🔍 Advanced Filtering**: Configure custom filters with category and text-based criteria
 - **📁 Category Management**: Organize articles by arXiv categories (cs.AI, hep-th, etc.)
+- **🏷️ Tag Management**: Add custom tags to articles and filter by tags
 - **💾 Save System**: Save and organize your favorite articles
 - **📖 Reading Status**: Track viewed articles automatically
 - **📱 Modern TUI**: Beautiful, responsive terminal interface with mouse support
@@ -47,7 +48,8 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 ```bash
 pip install -r requirements.txt
 ```
-
+4. After first open
+Press the 'r' button to refresh the database
 ## Configuration
 
 Create or edit `arxiv_config.yaml` to configure categories and filters:
@@ -88,9 +90,10 @@ python main.py
 ```
 
 The application will:
-1. Start the TUI interface
-2. Begin background fetching of recent articles (last 7 days)
-3. Load the first configured category/filter automatically
+1. Create the database file if it doesn't exist
+2. Start the TUI interface
+3. Automatically refresh articles (same as pressing 'r') - fetching recent articles (last 7 days)
+4. Load the first configured category/filter automatically
 
 ### Interface Overview
 
@@ -173,8 +176,8 @@ The application uses SQLite to store:
 
 ### Automatic Fetching
 
-- **Startup**: Fetches recent articles (7 days) for all categories/filters
-- **Background**: Non-blocking, won't interrupt UI usage
+- **Startup**: Automatically runs the same refresh as pressing 'r' - fetches recent articles (7 days) for all categories/filters
+- **Background**: Non-blocking, won't interrupt UI usage  
 - **Smart Caching**: Avoids re-fetching recently updated categories
 - **Duplicate Prevention**: Articles only stored once, even if in multiple categories
 

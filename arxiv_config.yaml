@@ -1,0 +1,11 @@
+categories:
+  HEP Experiments: 'hep-ex'
+  HEP Theory: 'hep-th'
+  HEP Phenomenology: 'hep-ph'
+  Nuclear Experiments: 'nucl-ex'
+filters:
+  "ALICE":
+    categories:
+      - hep-ex
+      - hep-ph
+    query: "ALICE"

@@ -1,0 +1,97 @@
+ArxivReader {
+    layout: vertical;
+}
+
+#main_app_container {
+    layout: horizontal;
+    height: 1fr;
+}
+
+#left_pane {
+    width: 30;
+    height: 100%;
+    border-right: solid $accent;
+    overflow-y: auto;
+    padding: 1;
+}
+
+.pane_title {
+    content-align: center middle;
+    width: 100%;
+    margin: 1 0;
+    text-style: bold;
+}
+
+.menu_item {
+    width: 100%;
+    padding: 1 0;
+    content-align: left middle;
+}
+
+.menu_item.hover {
+    background: $surface;
+    text-style: bold;
+}
+
+.menu_item.clicked {
+    background: $boost;
+}
+
+.menu_item.selected {
+    text-style: underline;
+    background: $boost;
+}
+
+#right_pane {
+    layout: vertical;
+    width: 1fr;
+    height: 100%;
+    padding: 0 1;
+}
+
+#search_input {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#main_container {
+    layout: horizontal;
+    height: 1fr;
+}
+
+#results_table {
+    width: 1fr;
+    height: 100%;
+    border: solid $primary;
+}
+
+#abstract_view {
+    width: 1fr;
+    height: 100%;
+    border: solid $primary;
+    padding: 1;
+    overflow-y: auto;
+    margin-left: 1;
+}
+
+SelectionPopupScreen {
+    align: center middle;
+}
+
+#selection_popup_dialog {
+    width: 50;
+    height: auto;
+    padding: 1;
+    border: thick $primary;
+    background: $surface;
+}
+
+#selection_popup_title {
+    content-align: center middle;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#selection_popup_select {
+    width: 100%;
+} 

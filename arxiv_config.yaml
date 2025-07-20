@@ -9,3 +9,8 @@ filters:
       - hep-ex
       - hep-ph
     query: "ALICE"
+  "Heavy-Ion Physics":
+    categories:
+      - hep-ex
+      - hep-ph
+    query: "qgp OR quark gluon plasma OR quark-gluon plasma OR heavy-ion"

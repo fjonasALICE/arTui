@@ -5,6 +5,9 @@ import os
 import platform
 import subprocess
 import json
+import requests
+import pyperclip
+
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import (
@@ -16,6 +19,7 @@ from textual.widgets import (
     Input,
     Select,
     Tree,
+    Checkbox,
 )
 from textual.coordinate import Coordinate
 from textual.screen import ModalScreen
@@ -60,6 +64,45 @@ class SelectionPopupScreen(ModalScreen):
         self.dismiss(event.value)
 
 
+class BibtexPopupScreen(ModalScreen):
+    """Screen to display bibtex citation information."""
+
+    def __init__(self, bibtex_content, article_title, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.bibtex_content = bibtex_content
+        self.article_title = article_title
+
+    def compose(self) -> ComposeResult:
+        yield Vertical(
+            Static(f"BibTeX Citation", id="bibtex_popup_title"),
+            VerticalScroll(
+                Static(self.bibtex_content, id="bibtex_content"),
+                id="bibtex_scroll"
+            ),
+            Horizontal(
+                Button("Copy", variant="primary", id="bibtex_copy_button"),
+                Button("Close", variant="primary", id="bibtex_close_button"),
+                id="bibtex_buttons"
+            ),
+            id="bibtex_popup_dialog",
+        )
+
+    def on_mount(self) -> None:
+        self.query_one("#bibtex_close_button", Button).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "bibtex_close_button":
+            self.dismiss()
+        elif event.button.id == "bibtex_copy_button":
+            import pyperclip
+            pyperclip.copy(self.bibtex_content)
+            self.notify("BibTeX copied to clipboard", timeout=2)
+
+    def on_key(self, event) -> None:
+        if event.key == "escape":
+            self.dismiss()
+
+
 class ArxivReader(App):
     """A Textual app to view arXiv articles."""
 
@@ -70,9 +113,12 @@ class ArxivReader(App):
         ("d", "remove_saved_article", "Un-save Article"),
         ("u", "mark_unread", "Mark Unread"),
         ("o", "download_and_open_pdf", "Open PDF"),
+        ("l", "open_arxiv_link", "Open arXiv Link"),
         ("f", "focus_search", "Find"),
+        ("g", "global_search_and_focus", "Global Search"),
         ("c", "show_selection_popup", "Select View"),
         ("r", "refresh_articles", "Refresh"),
+        ("i", "show_inspire_citation", "Show INSPIRE Citation"),
         ("q", "quit", "Quit"),
     ]
 
@@ -82,6 +128,8 @@ class ArxivReader(App):
         self.search_results = []
         self.current_query = ""
         self.current_selection = None
+        self.global_search_enabled = False # New attribute for global search
+        self.current_results_from_global = False # Track if current results are from global search
         # Initialize database
         self.db = ArticleDatabase()
         # Migrate existing data from text files
@@ -133,7 +181,9 @@ class ArxivReader(App):
                         )
 
             with Vertical(id="right_pane"):
-                yield Input(placeholder="Enter query...", id="search_input")
+                with Horizontal(id="search_container"):
+                    yield Input(placeholder="Enter query...", id="search_input")
+                    yield Checkbox("Global Search", id="global_search_checkbox")
                 with Horizontal(id="main_container"):
                     yield DataTable(id="results_table")
                     yield Static("No article selected", id="abstract_view")
@@ -190,6 +240,8 @@ class ArxivReader(App):
 
         # Also trigger the same refresh as the 'r' shortcut
         self.manual_refresh_articles()
+        
+
 
         # Automatically load the first filter or category
         if self.config.get("filters"):
@@ -213,6 +265,10 @@ class ArxivReader(App):
                 self.load_articles()
             except Exception:
                 pass  # Button not found
+
+        # Set initial state of global search checkbox
+        global_search_checkbox = self.query_one("#global_search_checkbox", Checkbox)
+        global_search_checkbox.value = self.global_search_enabled
 
     def on_mouse_enter(self, event: events.Enter) -> None:
         """Handle mouse enter events for hover effects."""
@@ -268,6 +324,15 @@ class ArxivReader(App):
                     item.remove_class("selected")
                 widget.add_class("selected")
 
+            # Clear search input and uncheck global search when selecting a category
+            search_input = self.query_one("#search_input", Input)
+            search_input.value = ""
+            self.current_query = ""
+            
+            global_search_checkbox = self.query_one("#global_search_checkbox", Checkbox)
+            global_search_checkbox.value = False
+            self.global_search_enabled = False
+
             self.load_articles()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -275,12 +340,27 @@ class ArxivReader(App):
         self.current_query = event.value
         self.load_articles()
 
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        """Handle global search checkbox changes."""
+        if event.checkbox.id == "global_search_checkbox":
+            self.global_search_enabled = event.value
+            # If there's a current query, re-run the search with new mode
+            if self.current_query:
+                self.load_articles()
+
     def load_articles(self) -> None:
         """Prepare for fetching articles and trigger the worker."""
         table = self.query_one("#results_table", DataTable)
         abstract_view = self.query_one("#abstract_view", Static)
         table.clear()
         abstract_view.update("No article selected")
+
+        # Check if global search is enabled and we have a query
+        if self.global_search_enabled and self.current_query:
+            self.notify(f"Searching arXiv globally for: {self.current_query}")
+            self.current_results_from_global = True
+            self.fetch_articles_from_arxiv()
+            return
 
         selection_name = ""
         if self.current_selection:
@@ -299,6 +379,8 @@ class ArxivReader(App):
         elif self.current_query:
             self.notify(f"Searching for: {self.current_query}")
 
+        # Set flag to indicate results are from local database
+        self.current_results_from_global = False
         self.fetch_articles_from_db()
 
     @work(exclusive=True, thread=True)
@@ -365,6 +447,40 @@ class ArxivReader(App):
                 severity="warning",
                 timeout=5
             )
+
+    @work(exclusive=True, thread=True)
+    def fetch_articles_from_arxiv(self) -> None:
+        """Worker to fetch articles directly from arXiv API for global search."""
+        abstract_view = self.query_one("#abstract_view", Static)
+
+        try:
+            # Perform global arXiv search
+            search = arxiv.Search(
+                query=self.current_query,
+                max_results=100,
+                sort_by=arxiv.SortCriterion.Relevance
+            )
+            
+            # Convert results to list
+            arxiv_results = list(search.results())
+            
+            # Create article objects similar to database results
+            self.search_results = []
+            for result in arxiv_results:
+                # Add status information (not saved, not viewed since from global search)
+                result.is_saved = False
+                result.is_viewed = False
+                self.search_results.append(result)
+                
+        except Exception as e:
+            self.call_from_thread(
+                abstract_view.update,
+                f"[bold red]Error fetching articles from arXiv:[/bold red]\n{e}",
+            )
+            self.search_results = []
+
+        self.call_from_thread(self._populate_table)
+        self.call_from_thread(self.query_one("#results_table").focus)
 
     @work(exclusive=True, thread=True) 
     def fetch_articles_from_db(self) -> None:
@@ -595,14 +711,26 @@ class ArxivReader(App):
             article_id = selected_article.get_short_id()
 
             if not (hasattr(selected_article, 'is_saved') and selected_article.is_saved):
+                # For global search results, we need to add the article to database first
+                if self.current_results_from_global:
+                    # Add article to database (pass the article object directly)
+                    try:
+                        if not self.db.add_article(selected_article):
+                            # Article already exists in database, that's fine
+                            pass
+                    except Exception as e:
+                        self.notify(f"Error adding article to database: {e}", severity="error")
+                        return
+                
+                # Now mark as saved (works for both database and newly added articles)
                 if self.db.mark_article_saved(article_id):
                     selected_article.is_saved = True
                     self.notify(f"Saved {article_id}")
                     
-                    # Also mark as viewed
-                    if not (hasattr(selected_article, 'is_viewed') and selected_article.is_viewed):
-                        self.db.mark_article_viewed(article_id)
-                        selected_article.is_viewed = True
+                    # Always mark as viewed when saving (especially for global search results)
+                    # This ensures articles saved from global search are not marked as unread
+                    self.db.mark_article_viewed(article_id)
+                    selected_article.is_viewed = True
 
                     table.update_cell_at(Coordinate(cursor_row, 0), "[red]s[/red]")
                     # Refresh left panel counts since an article was saved
@@ -662,6 +790,19 @@ class ArxivReader(App):
             selected_article = self.search_results[cursor_row]
             self.download_and_open_worker(selected_article)
 
+    def action_open_arxiv_link(self) -> None:
+        """Open the arXiv link for the selected article in browser."""
+        table = self.query_one("#results_table", DataTable)
+        cursor_row = table.cursor_row
+        if cursor_row is not None and 0 <= cursor_row < len(self.search_results):
+            selected_article = self.search_results[cursor_row]
+            article_id = selected_article.get_short_id()
+            arxiv_url = f"https://arxiv.org/abs/{article_id}"
+            webbrowser.open(arxiv_url)
+            self.notify(f"Opened arXiv link for {article_id}")
+        else:
+            self.notify("No article selected", severity="warning")
+
     @work(exclusive=True, thread=True)
     def download_and_open_worker(self, selected_article: arxiv.Result) -> None:
         """Worker to download and open PDF."""
@@ -697,6 +838,16 @@ class ArxivReader(App):
         """Focus the search input."""
         self.query_one("#search_input", Input).focus()
 
+    def action_global_search_and_focus(self) -> None:
+        """Enable global search and focus the search input."""
+        # Enable global search
+        self.global_search_enabled = True
+        global_search_checkbox = self.query_one("#global_search_checkbox", Checkbox)
+        global_search_checkbox.value = True
+        
+        # Focus the search input
+        self.query_one("#search_input", Input).focus()
+
     def action_show_selection_popup(self) -> None:
         """Show a popup to select a view (category, filter, or saved)."""
         options = [("Saved Articles", "special:saved_articles_filter")]
@@ -721,9 +872,115 @@ class ArxivReader(App):
         self.notify("Refreshing articles...", title="Manual Refresh", timeout=3)
         self.manual_refresh_articles()
 
+
+
     def action_quit(self) -> None:
         """Quit the application."""
         self.exit()
+
+    def action_show_inspire_citation(self) -> None:
+        """Show inspire-hep citation for the currently selected article."""
+        table = self.query_one("#results_table", DataTable)
+        cursor_row = table.cursor_row
+        if cursor_row is not None and 0 <= cursor_row < len(self.search_results):
+            selected_article = self.search_results[cursor_row]
+            self.fetch_inspire_citation(selected_article)
+        else:
+            self.notify("No article selected", severity="warning")
+
+    @work(exclusive=True, thread=True)
+    def fetch_inspire_citation(self, article) -> None:
+        """Worker to fetch bibtex citation from inspire-hep."""
+        article_id = article.get_short_id()
+        self.call_from_thread(
+            self.notify, 
+            f"Fetching citation for {article_id}...", 
+            title="Inspire-HEP", 
+            timeout=5
+        )
+        
+        try:
+            # Search for the article on inspire-hep using arxiv ID
+            # Strip version number (e.g. v1, v2) from arxiv ID for inspire API
+            base_article_id = article_id.split('v')[0] if 'v' in article_id else article_id
+            search_url = f"https://inspirehep.net/api/arxiv/{base_article_id}"
+            params = {
+                'format': 'json'
+            }
+            # First try to get the bibtex directly from the arxiv ID
+            bibtex_url = f"https://inspirehep.net/api/literature?q=arxiv:{base_article_id}&format=bibtex"
+            bibtex_response = requests.get(bibtex_url, timeout=10)
+            bibtex_response.raise_for_status()
+            
+            bibtex_content = bibtex_response.text
+            
+            if not bibtex_content or bibtex_content.strip() == '':
+                # If direct bibtex lookup fails, try the metadata API
+                response = requests.get(search_url, params=params, timeout=10)
+                response.raise_for_status()
+                
+                data = response.json()
+                
+                if not data.get('hits') or len(data['hits']['hits']) == 0:
+                    self.call_from_thread(
+                        self.notify,
+                        f"No citation found for {base_article_id}",
+                        title="Inspire-HEP", 
+                        severity="warning",
+                        timeout=5
+                    )
+                    return
+                
+                # Get inspire ID from first result
+                inspire_id = data['hits']['hits'][0]['metadata'].get('control_number')
+                if not inspire_id:
+                    self.call_from_thread(
+                        self.notify,
+                        f"Could not find inspire ID for {base_article_id}",
+                        title="Inspire-HEP",
+                        severity="warning", 
+                        timeout=5
+                    )
+                    return
+                
+                # Try bibtex lookup with inspire ID
+                bibtex_url = f"https://inspirehep.net/api/literature/{inspire_id}?format=bibtex"
+                bibtex_response = requests.get(bibtex_url, timeout=10)
+                bibtex_response.raise_for_status()
+                bibtex_content = bibtex_response.text
+                
+                if not bibtex_content or bibtex_content.strip() == '':
+                    self.call_from_thread(
+                        self.notify,
+                        f"Empty bibtex response for {article_id}",
+                        title="Inspire-HEP",
+                        severity="warning",
+                        timeout=5
+                    )
+                    return
+            
+            # Show the bibtex popup
+            self.call_from_thread(
+                self.push_screen,
+                BibtexPopupScreen(bibtex_content, article.title)
+            )
+            
+        except requests.exceptions.RequestException as e:
+            self.call_from_thread(
+                self.notify,
+                f"Network error: {str(e)}",
+                title="Inspire-HEP Error",
+                severity="error",
+                timeout=5
+            )
+        except Exception as e:
+            self.call_from_thread(
+                self.notify,
+                f"Error fetching citation: {str(e)}",
+                title="Inspire-HEP Error",
+                severity="error",
+                timeout=5
+            )
 
     def selection_popup_callback(self, selection_value):
         """Callback for when a view is selected from the popup."""

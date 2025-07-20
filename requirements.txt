@@ -2,3 +2,4 @@ textual
 arxiv
 pyyaml
 requests 
+pyperclip

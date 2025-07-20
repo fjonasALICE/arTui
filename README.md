@@ -15,6 +15,7 @@ WORK IN PROGRESS
 - **📱 Modern TUI**: Beautiful, responsive terminal interface with mouse support
 - **📄 PDF Integration**: Download and open PDFs directly from the application
 - **🔎 Full-Text Search**: Search across titles, authors, and abstracts
+
 - **⚡ Fast Performance**: Local database ensures instant search and browsing
 
 ## Screenshot
@@ -118,9 +119,12 @@ The application will:
 | `d` | Remove article from saved list |
 | `u` | Mark article as unread |
 | `o` | Download and open PDF |
+| `i` | Show BibTeX citation from Inspire-HEP |
 | `f` | Focus search box |
+| `g` | Enable global search and focus search box |
 | `c` | Show category/filter selection popup |
 | `r` | Refresh and fetch new articles |
+| `q` | Quit application |
 | `Ctrl+d` | Toggle dark/light mode |
 | `↑/↓` | Navigate article list |
 | `Enter` | Select article (shows abstract) |
@@ -173,6 +177,8 @@ The application uses SQLite to store:
 - **Background**: Non-blocking, won't interrupt UI usage
 - **Smart Caching**: Avoids re-fetching recently updated categories
 - **Duplicate Prevention**: Articles only stored once, even if in multiple categories
+
+
 
 ### Data Migration
 

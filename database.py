@@ -32,6 +32,8 @@ class ArticleDatabase:
                     categories TEXT NOT NULL,      -- JSON array of categories
                     published_date TEXT NOT NULL,  -- ISO date string
                     pdf_url TEXT NOT NULL,
+                    citation_count INTEGER DEFAULT 0,  -- Number of citations
+                    citations_updated_at TEXT,     -- When citations were last fetched
                     created_at TEXT NOT NULL,      -- When first fetched
                     updated_at TEXT NOT NULL       -- Last update
                 )
@@ -64,6 +66,24 @@ class ArticleDatabase:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_articles_categories ON articles (categories)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_status_saved ON article_status (is_saved)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_status_viewed ON article_status (is_viewed)")
+            
+            # Run database migrations
+            self._migrate_database()
+    
+    def _migrate_database(self) -> None:
+        """Run database migrations for schema updates."""
+        with self.get_connection() as conn:
+            # Check if citation_count column exists
+            cursor = conn.execute("PRAGMA table_info(articles)")
+            columns = [col[1] for col in cursor.fetchall()]
+            
+            if 'citation_count' not in columns:
+                # Add citation_count column
+                conn.execute("ALTER TABLE articles ADD COLUMN citation_count INTEGER DEFAULT 0")
+                
+            if 'citations_updated_at' not in columns:
+                # Add citations_updated_at column
+                conn.execute("ALTER TABLE articles ADD COLUMN citations_updated_at TEXT")
     
     def article_exists(self, article_id: str) -> bool:
         """Check if article already exists in database."""
@@ -86,8 +106,8 @@ class ArticleDatabase:
             conn.execute("""
                 INSERT INTO articles (
                     id, entry_id, title, authors, summary, categories,
-                    published_date, pdf_url, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    published_date, pdf_url, citation_count, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 article_id,
                 article.entry_id,
@@ -97,6 +117,7 @@ class ArticleDatabase:
                 categories,
                 article.published.isoformat(),
                 article.pdf_url,
+                0,  # Initialize citation count to 0
                 now,
                 now
             ))
@@ -130,8 +151,8 @@ class ArticleDatabase:
                     conn.execute("""
                         INSERT INTO articles (
                             id, entry_id, title, authors, summary, categories,
-                            published_date, pdf_url, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            published_date, pdf_url, citation_count, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         article_id,
                         article.entry_id,
@@ -141,6 +162,7 @@ class ArticleDatabase:
                         categories,
                         article.published.isoformat(),
                         article.pdf_url,
+                        0,  # Initialize citation count to 0
                         now,
                         now
                     ))
@@ -366,6 +388,34 @@ class ArticleDatabase:
             pass
         
         return stats
+
+    def update_citation_count(self, article_id: str, citation_count: int) -> bool:
+        """Update citation count for an article."""
+        with self.get_connection() as conn:
+            now = datetime.now().isoformat()
+            cursor = conn.execute("""
+                UPDATE articles 
+                SET citation_count = ?, citations_updated_at = ?
+                WHERE id = ?
+            """, (citation_count, now, article_id))
+            return cursor.rowcount > 0
+
+    def get_articles_needing_citation_update(self, days_old: int = 7) -> List[Dict]:
+        """Get articles that need citation count updates (haven't been updated in X days)."""
+        with self.get_connection() as conn:
+            from datetime import datetime, timedelta
+            cutoff_date = (datetime.now() - timedelta(days=days_old)).isoformat()
+            
+            cursor = conn.execute("""
+                SELECT id, title, entry_id
+                FROM articles 
+                WHERE citations_updated_at IS NULL 
+                   OR citations_updated_at < ?
+                ORDER BY published_date DESC
+                LIMIT 100
+            """, (cutoff_date,))
+            
+            return [dict(row) for row in cursor.fetchall()]
 
     def get_unread_count_by_category(self, category: str) -> int:
         """Get count of unread articles for a specific category."""

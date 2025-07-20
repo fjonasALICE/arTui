@@ -19,7 +19,7 @@ WORK IN PROGRESS
 
 ## Screenshot
 
-![ArXiv Reader Screenshot](screenshot.png)
+![ArXiv Reader Screenshot](screenshot.jpg)
 
 *The ArXiv Reader interface showing the category sidebar, article list, and abstract panel*
 

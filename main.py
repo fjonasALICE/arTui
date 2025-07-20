@@ -21,6 +21,7 @@ from textual.widgets import (
     Select,
     Tree,
     Checkbox,
+    TextArea,
 )
 from textual.coordinate import Coordinate
 from textual.screen import ModalScreen
@@ -28,6 +29,7 @@ from textual import work, events
 import asyncio
 from database import ArticleDatabase
 from startup_fetcher import StartupFetcher
+from typing import Optional
 
 
 # Legacy file paths for migration
@@ -240,6 +242,49 @@ class TagPopupScreen(ModalScreen):
             self.dismiss()
 
 
+class NotesPopupScreen(ModalScreen):
+    """Screen to display and edit notes for an article."""
+
+    def __init__(self, notes_path: str, article_title: str, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.notes_path = notes_path
+        self.article_title = article_title
+        self.original_content = ""
+
+    def compose(self) -> ComposeResult:
+        # Read initial content
+        if os.path.exists(self.notes_path):
+            with open(self.notes_path, "r") as f:
+                self.original_content = f.read()
+
+        yield Vertical(
+            Static(f"Notes for: {self.article_title[:60]}{'...' if len(self.article_title) > 60 else ''}", id="notes_popup_title"),
+            TextArea(self.original_content, language="markdown", id="notes_textarea"),
+            Horizontal(
+                Button("Save", variant="primary", id="notes_save_button"),
+                Button("Close", id="notes_close_button"),
+                id="notes_buttons"
+            ),
+            id="notes_popup_dialog",
+        )
+
+    def on_mount(self) -> None:
+        self.query_one(TextArea).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "notes_close_button":
+            self.dismiss(None)
+        elif event.button.id == "notes_save_button":
+            new_content = self.query_one(TextArea).text
+            with open(self.notes_path, "w") as f:
+                f.write(new_content)
+            self.dismiss(new_content)
+
+    def on_key(self, event) -> None:
+        if event.key == "escape":
+            self.dismiss(None)
+
+
 class ArxivReader(App):
     """A Textual app to view arXiv articles."""
 
@@ -257,6 +302,7 @@ class ArxivReader(App):
         ("r", "refresh_articles", "Refresh"),
         ("i", "show_inspire_citation", "Show INSPIRE Citation"),
         ("t", "manage_tags", "Manage Tags"),
+        ("n", "manage_notes", "Notes"),
         ("q", "quit", "Quit"),
     ]
 
@@ -774,6 +820,8 @@ class ArxivReader(App):
                     self.is_saved = bool(db_result.get('is_saved', 0))
                     self.is_viewed = bool(db_result.get('is_viewed', 0))
                     self.has_tags = bool(db_result.get('has_tags', 0))
+                    self.notes_file_path = db_result.get('notes_file_path')
+                    self.has_note = bool(self.notes_file_path)
                 
                 def get_short_id(self):
                     return self.id
@@ -832,6 +880,10 @@ class ArxivReader(App):
             if hasattr(result, 'has_tags') and result.has_tags:
                 status_parts.append("[blue]t[/blue]")
             
+            # Add note indicator
+            if hasattr(result, 'has_note') and result.has_note:
+                status_parts.append("[green]n[/green]")
+
             # Join status parts or use first one if only one
             if len(status_parts) > 1:
                 status = "".join(status_parts)
@@ -880,6 +932,10 @@ class ArxivReader(App):
                 tags_str = ", ".join(tags)
                 tags_display = f"\n\n[bold]Tags:[/] {tags_str}"
 
+            notes_display = ""
+            if hasattr(selected_article, 'has_note') and selected_article.has_note:
+                notes_display = f"\n\n[bold]Notes:[/] This article has notes ([@click=\"app.manage_notes()\"]view/edit[/])."
+
             content = (
                 f"[bold]{selected_article.title}[/bold]\n\n"
                 f"[italic]{authors}[/italic]\n\n"
@@ -887,6 +943,7 @@ class ArxivReader(App):
                 f"{summary}\n\n"
                 f"Link: [@click=\"app.open_link('{pdf_url}')\"]{pdf_url}[/]"
                 f"{tags_display}"
+                f"{notes_display}"
             )
 
             abstract_view.update(content)
@@ -1097,6 +1154,56 @@ class ArxivReader(App):
             print(f"DEBUG: No valid article selected - cursor_row={cursor_row}, search_results length={len(self.search_results)}")
             self.notify("No article selected", severity="warning")
 
+    def action_manage_notes(self) -> None:
+        """Open the notes popup for the currently selected article."""
+        table = self.query_one("#results_table", DataTable)
+        cursor_row = table.cursor_row
+        if cursor_row is not None and 0 <= cursor_row < len(self.search_results):
+            selected_article = self.search_results[cursor_row]
+            self.show_notes_popup(selected_article)
+        else:
+            self.notify("No article selected", severity="warning")
+
+    def show_notes_popup(self, article) -> None:
+        """Create and show the notes popup for an article."""
+        article_id = article.get_short_id()
+        notes_path_str = self.db.get_notes_path(article_id)
+
+        if not notes_path_str:
+            # Create a new notes file
+            notes_dir = "notes"
+            os.makedirs(notes_dir, exist_ok=True)
+            
+            # Sanitize title for filename
+            safe_title = "".join(c for c in article.title if c.isalnum() or c in ' ._-').rstrip()
+            filename = f"{article_id}_{safe_title[:30]}.md"
+            notes_path_str = os.path.join(notes_dir, filename)
+            
+            # Create the file and update database
+            with open(notes_path_str, "w") as f:
+                f.write(f"# Notes for: {article.title}\n\n")
+            
+            self.db.set_notes_path(article_id, notes_path_str)
+
+            # Update article object and table view
+            article.notes_file_path = notes_path_str
+            article.has_note = True
+            table = self.query_one("#results_table", DataTable)
+            if table.cursor_row is not None:
+                self._update_table_row_status(table.cursor_row, article)
+
+        self.push_screen(
+            NotesPopupScreen(notes_path_str, article.title), 
+            self.notes_popup_callback
+        )
+
+    def notes_popup_callback(self, result: Optional[str]) -> None:
+        """Handle the result from the notes popup."""
+        if result is not None:
+            self.notify("Notes saved successfully!", timeout=2)
+        else:
+            self.notify("Notes closed without saving.", timeout=2)
+
     def show_tag_popup(self, article) -> None:
         """Show the tag management popup for an article."""
         article_id = article.get_short_id()
@@ -1193,6 +1300,10 @@ class ArxivReader(App):
         if hasattr(article, 'has_tags') and article.has_tags:
             status_parts.append("[blue]t[/blue]")
         
+        # Add note indicator
+        if hasattr(article, 'has_note') and article.has_note:
+            status_parts.append("[green]n[/green]")
+
         # Join status parts or use first one if only one
         if len(status_parts) > 1:
             status = "".join(status_parts)

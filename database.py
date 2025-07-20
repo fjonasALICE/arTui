@@ -123,12 +123,33 @@ class ArticleDatabase:
             if 'citations_updated_at' not in columns:
                 # Add citations_updated_at column
                 conn.execute("ALTER TABLE articles ADD COLUMN citations_updated_at TEXT")
+
+            if 'notes_file_path' not in columns:
+                # Add notes_file_path column
+                conn.execute("ALTER TABLE articles ADD COLUMN notes_file_path TEXT")
     
     def article_exists(self, article_id: str) -> bool:
         """Check if article already exists in database."""
         with self.get_connection() as conn:
             cursor = conn.execute("SELECT 1 FROM articles WHERE id = ?", (article_id,))
             return cursor.fetchone() is not None
+    
+    def set_notes_path(self, article_id: str, path: str) -> bool:
+        """Set the notes file path for an article."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                UPDATE articles 
+                SET notes_file_path = ?
+                WHERE id = ?
+            """, (path, article_id))
+            return cursor.rowcount > 0
+
+    def get_notes_path(self, article_id: str) -> Optional[str]:
+        """Get the notes file path for an article."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("SELECT notes_file_path FROM articles WHERE id = ?", (article_id,))
+            row = cursor.fetchone()
+            return row['notes_file_path'] if row else None
     
     def add_article(self, article: arxiv.Result) -> bool:
         """Add article to database if it doesn't exist. Returns True if added."""

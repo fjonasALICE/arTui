@@ -11,6 +11,8 @@ WORK IN PROGRESS
 - **🔍 Advanced Filtering**: Configure custom filters with category and text-based criteria
 - **📁 Category Management**: Organize articles by arXiv categories (cs.AI, hep-th, etc.)
 - **🏷️ Tag Management**: Add custom tags to articles and filter by tags
+- **📝 Notes Management**: Create and edit markdown notes for articles
+- **📚 BibTeX Citations**: Fetch and view BibTeX citations from Inspire-HEP
 - **💾 Save System**: Save and organize your favorite articles
 - **📖 Reading Status**: Track viewed articles automatically
 - **📱 Modern TUI**: Beautiful, responsive terminal interface with mouse support
@@ -123,6 +125,8 @@ The application will:
 | `u` | Mark article as unread |
 | `o` | Download and open PDF |
 | `i` | Show BibTeX citation from Inspire-HEP |
+| `t` | Manage tags for the selected article |
+| `n` | Create/edit notes for the selected article |
 | `f` | Focus search box |
 | `g` | Enable global search and focus search box |
 | `c` | Show category/filter selection popup |
@@ -139,6 +143,7 @@ In the article list, the first column shows status:
 - `●` - New/unread article
 - ` ` (space) - Article has been viewed
 - `s` - Article is saved/bookmarked
+- `t` - Article has tags
 
 ### Workflow
 
@@ -147,8 +152,9 @@ In the article list, the first column shows status:
 3. **Search**: Type in the search box for text-based queries
 4. **Refresh**: Press `r` to fetch the latest articles from arXiv
 5. **Save Articles**: Press `s` to bookmark interesting articles
-6. **Read Papers**: Press `o` to download and open PDFs
-7. **View Saved**: Click "Saved Articles" to see your bookmarks
+6. **Tag & Take Notes**: Use `t` and `n` to organize and annotate articles
+7. **Read Papers**: Press `o` to download and open PDFs
+8. **View Saved**: Click "Saved Articles" to see your bookmarks
 
 ## Database
 
@@ -158,6 +164,8 @@ The application uses SQLite to store:
 - **All fetched articles** with full metadata
 - **User interactions** (saved/viewed status)
 - **Fetch history** to avoid duplicate API calls
+- **Notes** for each article
+- **Tags** for each article
 
 ### Database Schema
 
@@ -165,6 +173,7 @@ The application uses SQLite to store:
 - Article ID, title, authors, abstract
 - Categories, publication date, PDF URL
 - Creation and update timestamps
+- Path to notes file
 
 **Article Status Table**: Tracks user interactions
 - Saved/viewed flags with timestamps
@@ -173,6 +182,10 @@ The application uses SQLite to store:
 **Fetched Categories Table**: Tracks fetch history
 - Category codes, last fetch time
 - Article counts per fetch
+
+**Tags Table**: Stores all unique tags created by the user
+
+**Article Tags Table**: Links articles and tags in a many-to-many relationship
 
 ### Automatic Fetching
 

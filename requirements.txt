@@ -3,3 +3,4 @@ arxiv
 pyyaml
 requests 
 pyperclip
+pygments

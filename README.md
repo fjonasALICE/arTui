@@ -1,9 +1,9 @@
-# ArXiv Reader
+# ArTui
 
 A Terminal User Interface (TUI) application for browsing, searching, and managing arXiv research papers. Built with Python and Textual, featuring a persistent SQLite database. This tool was built with AI to test AI capabilities and to build something useful for myself. The code is not pretty and I simply wanted to create a usable tool for myself. 
 
-WORK IN PROGRESS
-
+# Disclaimer
+This tool is not associated with arXiv and we thank arXiv for use of its open access interoperability. We also thank INSPIRE for provisding their API free of charge for educational and informational use. The tool has been developed with the help of a a mix of Claude Sonnet 4 and Gemini 2.5 Pro.
 ## Features
 
 - **🗃️ Persistent Database**: All articles stored locally in SQLite for fast offline access

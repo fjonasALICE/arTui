@@ -2,6 +2,17 @@ ArxivReader {
     layout: vertical;
 }
 
+#header_status {
+    height: 1;
+    width: 100%;
+    content-align: right middle;
+    background: $background;
+    padding: 0 1;
+    color: $primary;
+    text-align: right;
+    margin-bottom: 0;
+}
+
 #main_app_container {
     layout: horizontal;
     height: 1fr;
@@ -51,7 +62,7 @@ ArxivReader {
 }
 
 #results_container {
-    width: 1fr;
+    width: 2fr;
     height: 100%;
     layout: vertical;
     padding: 0;
@@ -111,19 +122,24 @@ SelectionPopupScreen {
 #selection_popup_dialog {
     width: 50;
     height: auto;
-    padding: 1;
-    border: thick $primary;
+    padding: 2;
+    border: solid $primary;
     background: $surface;
+    border-title-color: $accent;
+    border-title-background: $surface;
 }
 
 #selection_popup_title {
     content-align: center middle;
     width: 100%;
-    margin-bottom: 1;
+    margin-bottom: 2;
+    text-style: bold;
+    color: $accent;
 }
 
 #selection_popup_select {
     width: 100%;
+    margin-bottom: 1;
 }
 
 BibtexPopupScreen {
@@ -131,25 +147,27 @@ BibtexPopupScreen {
 }
 
 #bibtex_popup_dialog {
-    width: 80;
-    height: 80%;
-    padding: 1;
-    border: thick $primary;
+    width: 85;
+    height: 85%;
+    padding: 2;
+    border: solid $primary;
     background: $surface;
 }
 
 #bibtex_popup_title {
     content-align: center middle;
     width: 100%;
-    margin-bottom: 1;
+    margin-bottom: 2;
     text-style: bold;
+    color: $accent;
+    padding: 1;
 }
 
 #bibtex_scroll {
     width: 100%;
     height: 1fr;
     border: solid $accent;
-    margin-bottom: 1;
+    margin-bottom: 2;
 }
 
 #bibtex_content {
@@ -159,8 +177,19 @@ BibtexPopupScreen {
     text-style: none;
 }
 
-#bibtex_close_button {
+#bibtex_buttons {
+    layout: horizontal;
     width: 100%;
+    height: 3;
+}
+
+#bibtex_copy_button {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#bibtex_close_button {
+    width: 1fr;
 }
 
 TagPopupScreen {
@@ -168,10 +197,10 @@ TagPopupScreen {
 }
 
 #tag_popup_dialog {
-    width: 70;
-    height: 80%;
-    padding: 1;
-    border: thick $primary;
+    width: 75;
+    height: 85%;
+    padding: 2;
+    border: solid $primary;
     background: $surface;
     layout: vertical;
 }
@@ -179,21 +208,25 @@ TagPopupScreen {
 #tag_popup_title {
     content-align: center middle;
     width: 100%;
-    margin-bottom: 1;
+    margin-bottom: 2;
     text-style: bold;
+    color: $accent;
+    padding: 1;
 }
 
 #tag_popup_article {
     width: 100%;
-    margin-bottom: 1;
-    padding: 0 1;
+    margin-bottom: 2;
+    padding: 1;
     text-style: italic;
+    color: $text-muted;
+    background: $background;
 }
 
 #new_tag_container {
     layout: horizontal;
     width: 100%;
-    margin-bottom: 1;
+    margin-bottom: 2;
     height: 3;
 }
 
@@ -204,14 +237,16 @@ TagPopupScreen {
 
 #add_tag_button {
     width: auto;
+    padding: 0 2;
 }
 
 #tags_scroll {
     width: 100%;
     height: 1fr;
     border: solid $accent;
-    margin-bottom: 1;
+    margin-bottom: 2;
     padding: 1;
+    background: $background;
 }
 
 #no_tags_message {
@@ -219,6 +254,7 @@ TagPopupScreen {
     width: 100%;
     text-style: italic;
     color: $text-muted;
+    padding: 2;
 }
 
 #tag_buttons {
@@ -241,10 +277,10 @@ NotesPopupScreen {
 }
 
 #notes_popup_dialog {
-    width: 80%;
-    height: 80%;
-    padding: 1;
-    border: thick $primary;
+    width: 85%;
+    height: 85%;
+    padding: 2;
+    border: solid $primary;
     background: $surface;
     layout: vertical;
 }
@@ -252,14 +288,17 @@ NotesPopupScreen {
 #notes_popup_title {
     content-align: center middle;
     width: 100%;
-    margin-bottom: 1;
+    margin-bottom: 2;
     text-style: bold;
+    color: $accent;
+    padding: 1;
 }
 
-#notes_textarea {
+#notes_text_area {
     width: 100%;
     height: 1fr;
-    margin-bottom: 1;
+    margin-bottom: 2;
+    border: solid $accent;
 }
 
 #notes_buttons {

@@ -307,13 +307,12 @@ class ArxivReader(App):
     
     BINDINGS = [
         ("ctrl+d", "toggle_dark", "Toggle dark mode"),
-        ("s", "save_article", "Save"),
-        ("d", "remove_saved_article", "Un-save Article"),
+        ("s", "save_article", "Save/Unsave"),
         ("u", "mark_unread", "Mark Unread"),
         ("o", "download_and_open_pdf", "Open PDF"),
         ("l", "open_arxiv_link", "Open arXiv Link"),
         ("f", "focus_search", "Find"),
-        ("g", "global_search_and_focus", "Global Search"),
+        ("g", "global_search_and_focus", "Web Search"),
         ("c", "show_selection_popup", "Select View"),
         ("r", "refresh_articles", "Refresh"),
         ("i", "show_inspire_citation", "Show INSPIRE Citation"),
@@ -397,6 +396,7 @@ class ArxivReader(App):
         self.current_selection = None
         self.global_search_enabled = False # New attribute for global search
         self.current_results_from_global = False # Track if current results are from global search
+        self.last_refresh_time = None # Track when manual refresh was last run
         # Set default theme (dark mode for nord-like appearance)
         self.dark = True
         self.theme = "monokai"
@@ -488,9 +488,10 @@ class ArxivReader(App):
                         yield ListView(*category_items, id="categories_list")
 
             with Vertical(id="right_pane"):
+                yield Static("", id="header_status")
                 with Horizontal(id="search_container"):
                     yield Input(placeholder="Enter query...", id="search_input")
-                    yield Checkbox("Global Search", id="global_search_checkbox")
+                    yield Checkbox("Web Search", id="global_search_checkbox")
                 with Horizontal(id="main_container"):
                     with Vertical(id="results_container"):
                         yield Static("Articles", id="results_title", classes="pane_title")
@@ -505,33 +506,34 @@ class ArxivReader(App):
         try:
             results_title = self.query_one("#results_title", Static)
             
-            # Default title
-            title = "Articles"
-            
-            if self.current_selection:
-                if self.current_selection == "all_articles_filter":
-                    title = "All Articles"
-                elif self.current_selection == "unread_articles_filter":
-                    title = "Unread Articles"
-                elif self.current_selection == "saved_articles_filter":
-                    title = "Saved Articles"
-                elif self.current_selection.startswith("tag_"):
-                    tag_name = self.current_selection[4:]  # Remove "tag_" prefix
-                    title = f"Tag: {tag_name}"
-                elif self.current_selection in self.config.get("filters", {}):
-                    title = f"Filter: {self.current_selection}"
-                elif self.current_selection in self.config.get("categories", {}).values():
-                    # Find category name by code
-                    for name, code in self.config["categories"].items():
-                        if code == self.current_selection:
-                            title = f"Category: {name}"
-                            break
-            
-            # Add search info if there's a query
-            if self.current_query:
-                if self.global_search_enabled:
-                    title += f" - Global Search: {self.current_query}"
-                else:
+            # Check if we're showing global search results
+            if self.current_results_from_global and self.current_query:
+                title = "ArXiv Web Search"
+            else:
+                # Default title
+                title = "Articles"
+                
+                if self.current_selection:
+                    if self.current_selection == "all_articles_filter":
+                        title = "All Articles"
+                    elif self.current_selection == "unread_articles_filter":
+                        title = "Unread Articles"
+                    elif self.current_selection == "saved_articles_filter":
+                        title = "Saved Articles"
+                    elif self.current_selection.startswith("tag_"):
+                        tag_name = self.current_selection[4:]  # Remove "tag_" prefix
+                        title = f"Tag: {tag_name}"
+                    elif self.current_selection in self.config.get("filters", {}):
+                        title = f"Filter: {self.current_selection}"
+                    elif self.current_selection in self.config.get("categories", {}).values():
+                        # Find category name by code
+                        for name, code in self.config["categories"].items():
+                            if code == self.current_selection:
+                                title = f"Category: {name}"
+                                break
+                
+                # Add search info if there's a query (for local search only)
+                if self.current_query and not self.current_results_from_global:
                     title += f" - Search: {self.current_query}"
             
             results_title.update(title)
@@ -623,10 +625,11 @@ class ArxivReader(App):
         table = self.query_one("#results_table", DataTable)
         table.cursor_type = "row"
         table.add_column("S", width=3)
-        table.add_columns("Title", "Authors", "Published")
+        table.add_column("Title")
+        table.add_column("Authors", width=18)
+        table.add_column("Published")
+        table.add_column("Categories", width=20)
 
-        # Run the same refresh as pressing 'r' - fetches articles and updates UI
-        self.manual_refresh_articles()
 
 
         # Automatically select "Unread" as the default view
@@ -642,9 +645,15 @@ class ArxivReader(App):
         except Exception:
             pass  # List view or item not found
 
+        self.notify("Refreshing articles...", title="Manual Refresh", timeout=3)
+        self.manual_refresh_articles()
+
         # Set initial state of global search checkbox
         global_search_checkbox = self.query_one("#global_search_checkbox", Checkbox)
         global_search_checkbox.value = self.global_search_enabled
+        
+        # Update header status on mount
+        self.update_header_status()
 
     def on_mouse_enter(self, event: events.Enter) -> None:
         """Handle mouse enter events for hover effects."""
@@ -717,6 +726,10 @@ class ArxivReader(App):
     def manual_refresh_articles(self) -> None:
         """Manual refresh task to fetch new articles and reload current view."""
         try:
+            # Record refresh time
+            import time
+            self.last_refresh_time = time.time()
+            
             # Fetch recent articles (same as startup)
             results = self.fetcher.fetch_recent_articles(days=7, max_per_category=100)
             total_new = sum(results.values())
@@ -725,6 +738,8 @@ class ArxivReader(App):
             self.call_from_thread(self.load_articles)
             # Refresh left panel counts after manual refresh
             self.call_from_thread(self.refresh_left_panel_counts)
+            # Update header status after refresh
+            self.call_from_thread(self.update_header_status)
             
             if total_new > 0:
                 self.call_from_thread(
@@ -993,26 +1008,35 @@ class ArxivReader(App):
             if len(title) > 60:
                 title = title[:57] + "..."
 
-            if len(authors) > 40:
-                authors = authors[:37] + "..."
+            if len(authors) > 18:
+                authors = authors[:15] + "..."
+
+            # Format categories
+            categories = ", ".join(result.categories)
+            if len(categories) > 20:
+                categories = categories[:17] + "..."
 
             # Build status string with multiple indicators
             status_parts = []
             
-            # Use database status information
-            if hasattr(result, 'is_saved') and result.is_saved:
-                status_parts.append("[red]s[/red]")
-            elif hasattr(result, 'is_viewed') and result.is_viewed:
+            # For global search results, show nothing instead of read/unread status
+            if self.current_results_from_global:
                 status_parts.append(" ")
             else:
-                status_parts.append("●")
+                # Use database status information
+                if hasattr(result, 'is_saved') and result.is_saved:
+                    status_parts.append("[red]s[/red]")
+                elif hasattr(result, 'is_viewed') and result.is_viewed:
+                    status_parts.append(" ")
+                else:
+                    status_parts.append("●")
             
-            # Add tag indicator
-            if hasattr(result, 'has_tags') and result.has_tags:
+            # Add tag indicator (only for local database results)
+            if not self.current_results_from_global and hasattr(result, 'has_tags') and result.has_tags:
                 status_parts.append("[blue]t[/blue]")
             
-            # Add note indicator
-            if hasattr(result, 'has_note') and result.has_note:
+            # Add note indicator (only for local database results)
+            if not self.current_results_from_global and hasattr(result, 'has_note') and result.has_note:
                 status_parts.append("[green]n[/green]")
 
             # Join status parts or use first one if only one
@@ -1022,7 +1046,7 @@ class ArxivReader(App):
                 status = status_parts[0] if status_parts else " "
 
             table.add_row(
-                status, title, authors, result.published.strftime("%Y-%m-%d")
+                status, title, authors, result.published.strftime("%Y-%m-%d"), categories
             )
         
         # Refresh left panel counts after populating table
@@ -1089,14 +1113,31 @@ class ArxivReader(App):
         webbrowser.open(url)
 
     def action_save_article(self) -> None:
-        """Save the currently selected article."""
+        """Toggle save/unsave for the currently selected article."""
         table = self.query_one("#results_table", DataTable)
         cursor_row = table.cursor_row
         if cursor_row is not None and 0 <= cursor_row < len(self.search_results):
             selected_article = self.search_results[cursor_row]
             article_id = selected_article.get_short_id()
 
-            if not (hasattr(selected_article, 'is_saved') and selected_article.is_saved):
+            # Check if article is currently saved
+            if hasattr(selected_article, 'is_saved') and selected_article.is_saved:
+                # Article is saved, so unsave it
+                if self.db.mark_article_unsaved(article_id):
+                    selected_article.is_saved = False
+                    self.notify(f"Removed {article_id} from saved list.")
+
+                    # If we are in the saved articles view, just reload the whole list
+                    if self.current_selection == "saved_articles_filter":
+                        self.load_articles()
+                    else:
+                        # Otherwise, update the status icon to preserve tags and notes indicators
+                        self._update_table_row_status(cursor_row, selected_article)
+                    
+                    # Refresh left panel counts since an article was unsaved
+                    self.refresh_left_panel_counts()
+            else:
+                # Article is not saved, so save it
                 # For global search results, we need to add the article to database first
                 if self.current_results_from_global:
                     # Add article to database (pass the article object directly)
@@ -1122,28 +1163,6 @@ class ArxivReader(App):
                     # Refresh left panel counts since an article was saved
                     self.refresh_left_panel_counts()
 
-    def action_remove_saved_article(self) -> None:
-        """Remove the currently selected article from the saved list."""
-        table = self.query_one("#results_table", DataTable)
-        cursor_row = table.cursor_row
-        if cursor_row is not None and 0 <= cursor_row < len(self.search_results):
-            selected_article = self.search_results[cursor_row]
-            article_id = selected_article.get_short_id()
-
-            if hasattr(selected_article, 'is_saved') and selected_article.is_saved:
-                if self.db.mark_article_unsaved(article_id):
-                    selected_article.is_saved = False
-                    self.notify(f"Removed {article_id} from saved list.")
-
-                    # If we are in the saved articles view, just reload the whole list
-                    if self.current_selection == "saved_articles_filter":
-                        self.load_articles()
-                    else:
-                        # Otherwise, just update the status icon to "viewed"
-                        table.update_cell_at(Coordinate(cursor_row, 0), " ")
-                    
-                    # Refresh left panel counts since an article was unsaved
-                    self.refresh_left_panel_counts()
 
     def action_mark_unread(self) -> None:
         """Mark the currently selected article as unread."""
@@ -1669,6 +1688,26 @@ class ArxivReader(App):
                 pass # It might not exist
 
         self.load_articles()
+
+    def update_header_status(self) -> None:
+        """Update the header status with article count and last refresh time."""
+        try:
+            header_status = self.query_one("#header_status", Static)
+            
+            # Get total article count from database
+            total_articles = self.db.get_all_articles_count()
+            status_text = f"Articles in Database: {total_articles}"
+            
+            # Add last refresh time if available
+            if self.last_refresh_time:
+                from datetime import datetime
+                refresh_time = datetime.fromtimestamp(self.last_refresh_time)
+                formatted_time = refresh_time.strftime("%Y-%m-%d %H:%M:%S")
+                status_text += f"  |  Last refresh: {formatted_time}"
+            
+            header_status.update(status_text)
+        except Exception:
+            pass  # Don't let header status errors break the app
 
 
 if __name__ == "__main__":

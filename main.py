@@ -306,7 +306,6 @@ class ArxivReader(App):
     ENABLE_COMMAND_PALETTE = False
     
     BINDINGS = [
-        ("ctrl+d", "toggle_dark", "Toggle dark mode"),
         ("s", "save_article", "Save/Unsave"),
         ("u", "mark_unread", "Mark Unread"),
         ("o", "download_and_open_pdf", "Open PDF"),
@@ -1234,10 +1233,6 @@ class ArxivReader(App):
                 title="Error",
                 severity="error",
             )
-
-    def action_toggle_dark(self) -> None:
-        """An action to toggle dark mode."""
-        self.dark = not self.dark
 
     def action_focus_search(self) -> None:
         """Focus the search input."""

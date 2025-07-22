@@ -10,7 +10,7 @@ ArxivReader {
 #left_pane {
     width: 30;
     height: 100%;
-    border-right: solid $accent;
+    border-right: solid $primary;
     overflow-y: auto;
     padding: 1;
 }
@@ -20,26 +20,6 @@ ArxivReader {
     width: 100%;
     margin: 1 0;
     text-style: bold;
-}
-
-.menu_item {
-    width: 100%;
-    padding: 1 0;
-    content-align: left middle;
-}
-
-.menu_item.hover {
-    background: $surface;
-    text-style: bold;
-}
-
-.menu_item.clicked {
-    background: $boost;
-}
-
-.menu_item.selected {
-    text-style: underline;
-    background: $boost;
 }
 
 #right_pane {
@@ -70,19 +50,58 @@ ArxivReader {
     height: 1fr;
 }
 
-#results_table {
+#results_container {
     width: 1fr;
     height: 100%;
+    layout: vertical;
+    padding: 0;
+    margin: 0;
+}
+
+#results_title {
+    content-align: left top;
+    width: 100%;
+    height: auto;
+    text-style: bold;
+    color: $primary;
+    margin: 0;
+    padding: 0;
+}
+
+#results_table {
+    width: 1fr;
+    height: 1fr;
     border: solid $primary;
+    background: $background;
+}
+
+#abstract_container {
+    width: 1fr;
+    height: 100%;
+    layout: vertical;
+    margin-left: 1;
+    padding: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    margin-right: 0;
+}
+
+#abstract_title {
+    content-align: left top;
+    width: 100%;
+    height: auto;
+    text-style: bold;
+    color: $primary;
+    margin: 0;
+    padding: 0;
 }
 
 #abstract_view {
     width: 1fr;
-    height: 100%;
+    height: 1fr;
     border: solid $primary;
     padding: 1;
     overflow-y: auto;
-    margin-left: 1;
 }
 
 SelectionPopupScreen {

@@ -687,4 +687,52 @@ class ArticleDatabase:
             cursor = conn.execute("""
                 SELECT 1 FROM article_tags WHERE article_id = ? LIMIT 1
             """, (article_id,))
-            return cursor.fetchone() is not None 
+            return cursor.fetchone() is not None
+
+    def get_unread_articles(self, limit: int = 100) -> List[Dict]:
+        """Get all unread articles."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
+                       CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
+                FROM articles a
+                LEFT JOIN article_status s ON a.id = s.article_id
+                LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
+                WHERE s.is_viewed IS NULL OR s.is_viewed = 0
+                ORDER BY a.published_date DESC
+                LIMIT ?
+            """, (limit,))
+            
+            results = [dict(row) for row in cursor.fetchall()]
+            return results
+    
+    def get_unread_count(self) -> int:
+        """Get count of all unread articles."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count
+                FROM articles a
+                LEFT JOIN article_status s ON a.id = s.article_id
+                WHERE s.is_viewed IS NULL OR s.is_viewed = 0
+            """)
+            return cursor.fetchone()['count']
+    
+    def get_all_articles(self) -> List[Dict]:
+        """Get all articles from database, regardless of status."""        
+        with self.get_connection() as conn:
+            # Simple query - just get all articles with basic status info
+            cursor = conn.execute("""
+                SELECT a.*, 
+                       COALESCE(s.is_saved, 0) as is_saved, 
+                       COALESCE(s.is_viewed, 0) as is_viewed, 
+                       s.saved_at, s.viewed_at,
+                       CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
+                FROM articles a
+                LEFT JOIN article_status s ON a.id = s.article_id
+                LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
+                ORDER BY a.published_date DESC
+            """)
+            
+            results = [dict(row) for row in cursor.fetchall()]
+            
+            return results 

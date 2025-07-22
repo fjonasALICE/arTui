@@ -8,6 +8,7 @@ import json
 import requests
 import pyperclip
 import re
+import sys
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -22,6 +23,9 @@ from textual.widgets import (
     Tree,
     Checkbox,
     TextArea,
+    MarkdownViewer,
+    ListView,
+    ListItem,
 )
 from textual.coordinate import Coordinate
 from textual.screen import ModalScreen
@@ -36,6 +40,13 @@ from typing import Optional
 VIEWED_ARTICLES_FILE = "viewed_articles.txt"
 SAVED_ARTICLES_FILE = "saved_articles.txt"
 
+
+def debug_log(msg):
+    """Write debug message to stderr and a debug file."""
+    print(f"DEBUG: {msg}", file=sys.stderr, flush=True)
+    with open("debug.log", "a") as f:
+        f.write(f"DEBUG: {msg}\n")
+        f.flush()
 
 def load_config():
     """Load categories and filters from the YAML file."""
@@ -250,6 +261,7 @@ class NotesPopupScreen(ModalScreen):
         self.notes_path = notes_path
         self.article_title = article_title
         self.original_content = ""
+        self.text_area = None
 
     def compose(self) -> ComposeResult:
         # Read initial content
@@ -259,7 +271,7 @@ class NotesPopupScreen(ModalScreen):
 
         yield Vertical(
             Static(f"Notes for: {self.article_title[:60]}{'...' if len(self.article_title) > 60 else ''}", id="notes_popup_title"),
-            TextArea(self.original_content, language="markdown", id="notes_textarea"),
+            TextArea(self.original_content, id="notes_text_area"),
             Horizontal(
                 Button("Save", variant="primary", id="notes_save_button"),
                 Button("Close", id="notes_close_button"),
@@ -289,6 +301,10 @@ class ArxivReader(App):
     """A Textual app to view arXiv articles."""
 
     CSS_PATH = "main.css"
+    TITLE = "ArTui"
+    # Set default theme (you can use "textual-dark", "textual-light", etc.)
+    ENABLE_COMMAND_PALETTE = False
+    
     BINDINGS = [
         ("ctrl+d", "toggle_dark", "Toggle dark mode"),
         ("s", "save_article", "Save"),
@@ -311,6 +327,68 @@ class ArxivReader(App):
         print(f"DEBUG: Key pressed: {event.key}")
         # Don't call super() to avoid interfering with normal key handling
 
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        """Handle menu item selection from list views."""
+        # Deselect items in other list views
+        for list_view in self.query(ListView):
+            if list_view is not event.list_view:
+                list_view.index = None
+
+        new_selection = None
+        item = event.item
+        widget_id = item.id
+
+        if not widget_id:
+            return
+
+        if self.current_selection == widget_id:
+            # Toggle off if the same item is selected again
+            self.current_selection = None
+            event.list_view.index = None
+            self.load_articles() # Reload to clear view
+            return
+        
+        # Determine the new selection from the item's ID
+        if widget_id.startswith("filter_"):
+            new_selection = widget_id[len("filter_") :].replace("_", " ")
+        elif widget_id.startswith("cat_"):
+            new_selection = widget_id[len("cat_") :]
+        elif widget_id.startswith("tag_"):
+            if hasattr(item, 'original_tag_name'):
+                new_selection = f"tag_{item.original_tag_name}"
+            else:
+                sanitized_id_part = widget_id[len('tag_'):]
+                new_selection = f"tag_{sanitized_id_part}"
+        elif widget_id == "all_articles_filter":
+            debug_log("All articles item selected")
+            new_selection = "all_articles_filter"
+        elif widget_id == "saved_articles_filter":
+            new_selection = "saved_articles_filter"
+        elif widget_id == "unread_articles_filter":
+            new_selection = "unread_articles_filter"
+
+        if new_selection:
+            self.current_selection = new_selection
+
+            # Clear search input and uncheck global search when selecting a category
+            search_input = self.query_one("#search_input", Input)
+            search_input.value = ""
+            self.current_query = ""
+            
+            global_search_checkbox = self.query_one("#global_search_checkbox", Checkbox)
+            global_search_checkbox.value = False
+            self.global_search_enabled = False
+
+            # Refresh left panel counts when switching views to ensure they're up to date
+            self.refresh_left_panel_counts()
+            
+            # Add notification to show what was selected
+            if new_selection == "all_articles_filter":
+                self.notify("Selected: All articles", timeout=2)
+            
+            self.load_articles()
+
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.config = load_config()
@@ -319,6 +397,9 @@ class ArxivReader(App):
         self.current_selection = None
         self.global_search_enabled = False # New attribute for global search
         self.current_results_from_global = False # Track if current results are from global search
+        # Set default theme (dark mode for nord-like appearance)
+        self.dark = True
+        self.theme = "monokai"
         # Initialize database (creates database file if it doesn't exist)
         self.db = ArticleDatabase()
         # Migrate existing data from text files
@@ -334,79 +415,161 @@ class ArxivReader(App):
 
         with Horizontal(id="main_app_container"):
             with VerticalScroll(id="left_pane"):
-                # Get unread count for saved articles
+                # Get unread count for all articles and saved articles
+                unread_count = self.db.get_unread_count()
+                unread_text = f"Unread ({unread_count})" if unread_count > 0 else "Unread"
+                
                 saved_unread_count = self.db.get_unread_saved_count()
                 saved_text = f"Saved Articles ({saved_unread_count})" if saved_unread_count > 0 else "Saved Articles"
                 
-                yield Static(
-                    saved_text,
-                    id="saved_articles_filter",
-                    classes="menu_item",
+                yield Static("My Vault", classes="pane_title")
+                yield ListView(
+                    ListItem(
+                        Static("All articles"), 
+                        id="all_articles_filter"
+                    ),
+                    ListItem(
+                        Static(unread_text), 
+                        id="unread_articles_filter"
+                    ),
+                    ListItem(
+                        Static(saved_text), 
+                        id="saved_articles_filter"
+                    ),
+                    id="saved_articles_list",
                 )
 
                 with Vertical(id="tags_container"):
-                    # Tags section
                     all_tags = self.db.get_all_tags()
                     if all_tags:
                         yield Static("Tags", classes="pane_title")
+                        tag_items = []
                         for tag in all_tags:
-                            # Get unread count for this tag
                             unread_count = self.db.get_unread_count_by_tag(tag['name'])
                             tag_text = f"{tag['name']} ({unread_count})" if unread_count > 0 else tag['name']
                             sanitized_tag_name = re.sub(r'[^a-zA-Z0-9_-]', '_', tag['name'])
                             
-                            tag_widget = Static(
-                                tag_text,
+                            tag_item = ListItem(
+                                Static(tag_text),
                                 id=f"tag_{sanitized_tag_name}",
-                                classes="menu_item",
                             )
-                            tag_widget.original_tag_name = tag['name']
-                            yield tag_widget
+                            tag_item.original_tag_name = tag['name']
+                            tag_items.append(tag_item)
+                        yield ListView(*tag_items, id="tags_list")
 
                 with Vertical(id="filters_container"):
                     if self.config["filters"]:
                         yield Static("Filters", classes="pane_title")
+                        filter_items = []
                         for name in self.config["filters"]:
-                            # Get unread count for this filter
                             filter_config = self.config["filters"][name]
                             unread_count = self.db.get_unread_count_by_filter(filter_config)
                             filter_text = f"{name} ({unread_count})" if unread_count > 0 else name
                             
-                            yield Static(
-                                filter_text,
-                                id=f"filter_{name.replace(' ', '_')}",
-                                classes="menu_item",
+                            filter_items.append(
+                                ListItem(
+                                    Static(filter_text),
+                                    id=f"filter_{name.replace(' ', '_')}",
+                                )
                             )
+                        yield ListView(*filter_items, id="filters_list")
 
                 with Vertical(id="categories_container"):
                     if self.config["categories"]:
                         yield Static("Categories", classes="pane_title")
+                        category_items = []
                         for name, code in self.config["categories"].items():
-                            # Get unread count for this category
                             unread_count = self.db.get_unread_count_by_category(code)
                             category_text = f"{name} ({unread_count})" if unread_count > 0 else name
                             
-                            yield Static(
-                                category_text, id=f"cat_{code}", classes="menu_item"
+                            category_items.append(
+                                ListItem(Static(category_text), id=f"cat_{code}")
                             )
+                        yield ListView(*category_items, id="categories_list")
 
             with Vertical(id="right_pane"):
                 with Horizontal(id="search_container"):
                     yield Input(placeholder="Enter query...", id="search_input")
                     yield Checkbox("Global Search", id="global_search_checkbox")
                 with Horizontal(id="main_container"):
-                    yield DataTable(id="results_table")
-                    yield Static("No article selected", id="abstract_view")
+                    with Vertical(id="results_container"):
+                        yield Static("Articles", id="results_title", classes="pane_title")
+                        yield DataTable(id="results_table")
+                    with Vertical(id="abstract_container"):
+                        yield Static("Article View", id="abstract_title", classes="pane_title")
+                        yield Static("No article selected", id="abstract_view")
         yield Footer()
+
+    def update_results_title(self) -> None:
+        """Update the results table title based on current selection."""
+        try:
+            results_title = self.query_one("#results_title", Static)
+            
+            # Default title
+            title = "Articles"
+            
+            if self.current_selection:
+                if self.current_selection == "all_articles_filter":
+                    title = "All Articles"
+                elif self.current_selection == "unread_articles_filter":
+                    title = "Unread Articles"
+                elif self.current_selection == "saved_articles_filter":
+                    title = "Saved Articles"
+                elif self.current_selection.startswith("tag_"):
+                    tag_name = self.current_selection[4:]  # Remove "tag_" prefix
+                    title = f"Tag: {tag_name}"
+                elif self.current_selection in self.config.get("filters", {}):
+                    title = f"Filter: {self.current_selection}"
+                elif self.current_selection in self.config.get("categories", {}).values():
+                    # Find category name by code
+                    for name, code in self.config["categories"].items():
+                        if code == self.current_selection:
+                            title = f"Category: {name}"
+                            break
+            
+            # Add search info if there's a query
+            if self.current_query:
+                if self.global_search_enabled:
+                    title += f" - Global Search: {self.current_query}"
+                else:
+                    title += f" - Search: {self.current_query}"
+            
+            results_title.update(title)
+        except Exception:
+            pass  # Don't let title update errors break the app
 
     def refresh_left_panel_counts(self) -> None:
         """Update the unread counts in the left panel."""
         try:
+            # Update All articles count
+            try:
+                all_count = self.db.get_all_articles_count()
+                all_text = f"All articles"
+                all_item = self.query_one("#all_articles_filter", ListItem)
+                all_static = all_item.query_one(Static)
+                all_static.update(all_text)
+            except Exception:
+                pass
+                
+            # Update Unread count
+            unread_count = self.db.get_unread_count()
+            unread_text = f"Unread ({unread_count})" if unread_count > 0 else "Unread"
+            try:
+                unread_item = self.query_one("#unread_articles_filter", ListItem)
+                unread_static = unread_item.query_one(Static)
+                unread_static.update(unread_text)
+            except Exception:
+                pass
+            
             # Update Saved Articles count
             saved_unread_count = self.db.get_unread_saved_count()
             saved_text = f"Saved Articles ({saved_unread_count})" if saved_unread_count > 0 else "Saved Articles"
-            saved_widget = self.query_one("#saved_articles_filter", Static)
-            saved_widget.update(saved_text)
+            try:
+                saved_item = self.query_one("#saved_articles_filter", ListItem)
+                saved_static = saved_item.query_one(Static)
+                saved_static.update(saved_text)
+            except Exception:
+                pass
             
             # Update Tag counts
             all_tags = self.db.get_all_tags()
@@ -417,8 +580,9 @@ class ArxivReader(App):
                 
                 tag_widget_id = f"tag_{sanitized_tag_name}"
                 try:
-                    tag_widget = self.query_one(f"#{tag_widget_id}", Static)
-                    tag_widget.update(tag_text)
+                    tag_item = self.query_one(f"#{tag_widget_id}", ListItem)
+                    tag_static = tag_item.query_one(Static)
+                    tag_static.update(tag_text)
                 except Exception:
                     pass  # Widget might not exist yet
             
@@ -431,8 +595,9 @@ class ArxivReader(App):
                     
                     filter_widget_id = f"filter_{name.replace(' ', '_')}"
                     try:
-                        filter_widget = self.query_one(f"#{filter_widget_id}", Static)
-                        filter_widget.update(filter_text)
+                        filter_item = self.query_one(f"#{filter_widget_id}", ListItem)
+                        filter_static = filter_item.query_one(Static)
+                        filter_static.update(filter_text)
                     except Exception:
                         pass  # Widget might not exist yet
             
@@ -443,8 +608,9 @@ class ArxivReader(App):
                     category_text = f"{name} ({unread_count})" if unread_count > 0 else name
                     
                     try:
-                        category_widget = self.query_one(f"#cat_{code}", Static)
-                        category_widget.update(category_text)
+                        category_item = self.query_one(f"#cat_{code}", ListItem)
+                        category_static = category_item.query_one(Static)
+                        category_static.update(category_text)
                     except Exception:
                         pass  # Widget might not exist yet
                         
@@ -463,28 +629,18 @@ class ArxivReader(App):
         self.manual_refresh_articles()
 
 
-        # Automatically load the first filter or category
-        if self.config.get("filters"):
-            first_selection_name = next(iter(self.config["filters"]))
-            self.current_selection = first_selection_name
-            button_id = f"filter_{first_selection_name.replace(' ', '_')}"
-            try:
-                button_to_select = self.query_one(f"#{button_id}", Static)
-                button_to_select.add_class("selected")
-                self.load_articles()
-            except Exception:
-                pass  # Button not found
-        elif self.config.get("categories"):
-            first_category_name = next(iter(self.config["categories"]))
-            first_category_code = self.config["categories"][first_category_name]
-            self.current_selection = first_category_code
-            button_id = f"cat_{first_category_code}"
-            try:
-                button_to_select = self.query_one(f"#{button_id}", Static)
-                button_to_select.add_class("selected")
-                self.load_articles()
-            except Exception:
-                pass  # Button not found
+        # Automatically select "Unread" as the default view
+        self.current_selection = "unread_articles_filter"
+        
+        # Deselect all ListViews first
+        for list_view in self.query(ListView):
+            list_view.index = None
+        
+        try:
+            self.query_one("#saved_articles_list", ListView).index = 1  # Select second item (Unread)
+            self.load_articles()
+        except Exception:
+            pass  # List view or item not found
 
         # Set initial state of global search checkbox
         global_search_checkbox = self.query_one("#global_search_checkbox", Checkbox)
@@ -492,87 +648,29 @@ class ArxivReader(App):
 
     def on_mouse_enter(self, event: events.Enter) -> None:
         """Handle mouse enter events for hover effects."""
-        try:
-            if "menu_item" in event.control.classes:
-                event.control.add_class("hover")
-        except Exception:
-            return
+        pass
 
     def on_mouse_leave(self, event: events.Leave) -> None:
         """Handle mouse leave events for hover effects."""
-        try:
-            if "menu_item" in event.control.classes:
-                event.control.remove_class("hover")
-        except Exception:
-            return
+        pass
 
     async def on_click(self, event: events.Click) -> None:
         """Handle menu item clicks."""
-        try:
-            if not event.control or "menu_item" not in event.control.classes:
-                return
-        except Exception:
-            return
-
-        widget = event.control
-        widget_id = widget.id
-        if not widget_id:
-            return
-
-        # Visual feedback for the click
-        widget.add_class("clicked")
-        await asyncio.sleep(0.1)  # Keep the highlight for a moment
-        widget.remove_class("clicked")
-
-        new_selection = None
-        if widget_id.startswith("filter_"):
-            new_selection = widget_id[len("filter_") :].replace("_", " ")
-        elif widget_id.startswith("cat_"):
-            new_selection = widget_id[len("cat_") :]
-        elif widget_id.startswith("tag_"):
-            if hasattr(widget, 'original_tag_name'):
-                new_selection = f"tag_{widget.original_tag_name}"
-            else:
-                # Fallback for safety, though it shouldn't be needed
-                sanitized_id_part = widget_id[len('tag_'):]
-                # This fallback is imperfect as we can't perfectly reverse sanitization
-                # but it's better than crashing.
-                new_selection = f"tag_{sanitized_id_part}"
-        elif widget_id == "saved_articles_filter":
-            new_selection = "saved_articles_filter"
-
-        if new_selection:
-            if self.current_selection == new_selection:
-                # Toggle off
-                self.current_selection = None
-                widget.remove_class("selected")
-            else:
-                self.current_selection = new_selection
-                # Highlight the selected button
-                for item in self.query(".menu_item.selected"):
-                    item.remove_class("selected")
-                widget.add_class("selected")
-
-            # Clear search input and uncheck global search when selecting a category
-            search_input = self.query_one("#search_input", Input)
-            search_input.value = ""
-            self.current_query = ""
-            
-            global_search_checkbox = self.query_one("#global_search_checkbox", Checkbox)
-            global_search_checkbox.value = False
-            self.global_search_enabled = False
-
-            self.load_articles()
+        pass
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle search input submission."""
         self.current_query = event.value
+        # Refresh left panel counts when searching to ensure they're up to date
+        self.refresh_left_panel_counts()
         self.load_articles()
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         """Handle global search checkbox changes."""
         if event.checkbox.id == "global_search_checkbox":
             self.global_search_enabled = event.value
+            # Refresh left panel counts when changing search mode
+            self.refresh_left_panel_counts()
             # If there's a current query, re-run the search with new mode
             if self.current_query:
                 self.load_articles()
@@ -588,6 +686,7 @@ class ArxivReader(App):
         if self.global_search_enabled and self.current_query:
             self.notify(f"Searching arXiv globally for: {self.current_query}")
             self.current_results_from_global = True
+            self.update_results_title()
             self.fetch_articles_from_arxiv()
             return
 
@@ -610,6 +709,8 @@ class ArxivReader(App):
 
         # Set flag to indicate results are from local database
         self.current_results_from_global = False
+        # Update the results title to reflect current selection/query
+        self.update_results_title()
         self.fetch_articles_from_db()
 
     @work(exclusive=True, thread=True)
@@ -691,6 +792,36 @@ class ArxivReader(App):
             if self.current_selection == "saved_articles_filter":
                 # Fetch saved articles from database
                 db_results = self.db.get_saved_articles()
+            
+            elif self.current_selection == "unread_articles_filter":
+                # Fetch all unread articles from database
+                if self.current_query:
+                    # Search within unread articles
+                    unread_results = self.db.get_unread_articles(limit=200)
+                    # Filter by search query
+                    search_lower = self.current_query.lower()
+                    db_results = [
+                        result for result in unread_results 
+                        if (search_lower in result['title'].lower() or 
+                            search_lower in result['summary'].lower() or
+                            search_lower in result['authors'].lower())
+                    ][:100]
+                else:
+                    # Just get all unread articles
+                    db_results = self.db.get_unread_articles(limit=100)
+            
+            elif self.current_selection == "all_articles_filter":
+                # Fetch all articles from database
+                if self.current_query:
+                    # Search within all articles
+                    db_results = self.db.search_articles(self.current_query, limit=100)
+                    self.call_from_thread(self.notify, f"Searched all articles with query: {self.current_query}, found {len(db_results)} results", timeout=3)
+                else:
+                    # Just get all articles (most recent first)
+                    debug_log("About to call get_all_articles")
+                    db_results = self.db.get_all_articles()
+                    debug_log(f"get_all_articles returned {len(db_results)} articles")
+                    self.call_from_thread(self.notify, f"Loaded {len(db_results)} total articles", timeout=3)
             
             elif self.current_query and not self.current_selection:
                 # Text search across all articles
@@ -947,6 +1078,9 @@ class ArxivReader(App):
             )
 
             abstract_view.update(content)
+            
+            # Refresh left panel counts on every article highlight to ensure they're always current
+            self.refresh_left_panel_counts()
         else:
             abstract_view.update("No article selected")
 
@@ -1102,7 +1236,10 @@ class ArxivReader(App):
 
     def action_show_selection_popup(self) -> None:
         """Show a popup to select a view (category, filter, or saved)."""
-        options = [("Saved Articles", "special:saved_articles_filter")]
+        options = [
+            ("Unread", "special:unread_articles_filter"),
+            ("Saved Articles", "special:saved_articles_filter")
+        ]
 
         filter_options = [
             (f"Filter: {name}", f"filter:{name}") for name in self.config["filters"]
@@ -1275,6 +1412,9 @@ class ArxivReader(App):
                 
                 # Reload left panel to show new tags if any were created
                 self.call_later(self.reload_left_panel)
+                
+                # Refresh all left panel counts since tagging could affect various counts
+                self.refresh_left_panel_counts()
             
             if tags_to_add or tags_to_remove:
                 self.notify(f"Updated tags for {article_id}")
@@ -1313,43 +1453,87 @@ class ArxivReader(App):
         table.update_cell_at(Coordinate(row_index, 0), status)
 
     def reload_left_panel(self) -> None:
-        """Reload the tags section in the left panel to show new tags."""
+        """Update the tags section in the left panel to show new tags."""
         print("DEBUG: reload_left_panel called")
         
-        # Store current selection to re-apply it
-        current_selection_id = None
-        selected_widget = self.query(".menu_item.selected").first()
-        if selected_widget:
-            current_selection_id = selected_widget.id
-        
-        # Get the tags container and rebuild it
         tags_container = self.query_one("#tags_container", Vertical)
-        tags_container.remove_children()
-        
-        # Re-add all items in the correct order
         all_tags = self.db.get_all_tags()
-        if all_tags:
-            tags_container.mount(Static("Tags", classes="pane_title"))
+        
+        # Check if tags_list exists
+        existing_tags_list = tags_container.query("#tags_list")
+        
+        if not all_tags:
+            # If no tags exist, remove tags list if it exists
+            if existing_tags_list:
+                existing_tags_list[0].remove()
+            # Remove title if it exists and no other content
+            title_widgets = tags_container.query(".pane_title")
+            if title_widgets and not tags_container.query("#tags_list"):
+                title_widgets[0].remove()
+            return
+        
+        # Ensure "Tags" title exists
+        if not tags_container.query(".pane_title"):
+            tags_container.mount(Static("Tags", classes="pane_title"), before=0)
+        
+        if existing_tags_list:
+            # Update existing tags list
+            tags_list_view = existing_tags_list[0]
+            current_selection_index = tags_list_view.index
+            selected_item_id = None
+            if current_selection_index is not None and current_selection_index < len(tags_list_view.children):
+                selected_item_id = tags_list_view.children[current_selection_index].id
+            
+            # Get current tag items in the list
+            current_tag_ids = set(item.id for item in tags_list_view.children)
+            
+            # Build new tag items
+            new_tag_items = []
+            new_selection_index = None
+            
+            for i, tag in enumerate(all_tags):
+                unread_count = self.db.get_unread_count_by_tag(tag['name'])
+                tag_text = f"{tag['name']} ({unread_count})" if unread_count > 0 else tag['name']
+                sanitized_tag_name = re.sub(r'[^a-zA-Z0-9_-]', '_', tag['name'])
+                item_id = f"tag_{sanitized_tag_name}"
+                
+                if item_id not in current_tag_ids:
+                    # This is a new tag, create the item
+                    tag_item = ListItem(Static(tag_text), id=item_id)
+                    tag_item.original_tag_name = tag['name']
+                    new_tag_items.append(tag_item)
+                    print(f"DEBUG: Adding new tag item: {tag['name']}")
+                
+                if item_id == selected_item_id:
+                    new_selection_index = i
+            
+            # Add new tag items to the list
+            for tag_item in new_tag_items:
+                tags_list_view.mount(tag_item)
+            
+            # Update selection if needed
+            if new_selection_index is not None:
+                tags_list_view.index = new_selection_index
+        
+        else:
+            # Create tags list for the first time
+            tag_items = []
             for tag in all_tags:
                 unread_count = self.db.get_unread_count_by_tag(tag['name'])
                 tag_text = f"{tag['name']} ({unread_count})" if unread_count > 0 else tag['name']
                 sanitized_tag_name = re.sub(r'[^a-zA-Z0-9_-]', '_', tag['name'])
-                tag_widget = Static(
-                    tag_text,
-                    id=f"tag_{sanitized_tag_name}",
-                    classes="menu_item",
-                )
-                tag_widget.original_tag_name = tag['name']
-                tags_container.mount(tag_widget)
-        
-        # Re-select the previously active item
-        if current_selection_id:
-            try:
-                newly_created_widget = self.query_one(f"#{current_selection_id}", Static)
-                newly_created_widget.add_class("selected")
-            except:
-                pass # It might have been a tag that was deleted, for example
+                
+                tag_item = ListItem(Static(tag_text), id=f"tag_{sanitized_tag_name}")
+                tag_item.original_tag_name = tag['name']
+                tag_items.append(tag_item)
+            
+            new_tags_list = ListView(*tag_items, id="tags_list")
+            tags_container.mount(new_tags_list)
+            print("DEBUG: Created new tags_list with initial items")
 
+        # Refresh all left panel counts since tagging operations could affect various counts
+        self.refresh_left_panel_counts()
+        
         self.notify("Tags updated successfully!", timeout=3)
         
     @work(exclusive=True, thread=True)
@@ -1452,32 +1636,37 @@ class ArxivReader(App):
             return
 
         # Deselect any currently selected button first
-        for btn in self.query(".category_button.selected"):
-            btn.remove_class("selected")
+        for list_view in self.query(ListView):
+            list_view.index = None
 
         value_type, value = selection_value.split(":", 1)
 
-        button_id_to_select = ""
+        target_list_view_id = ""
+        target_item_id = ""
 
         if value_type == "special":
-            self.current_selection = value  # e.g., "saved_articles_filter"
-            button_id_to_select = f"#{value}"  # e.g., "#saved_articles_filter"
+            self.current_selection = value
+            target_list_view_id = "saved_articles_list"
+            target_item_id = value
         elif value_type == "filter":
-            self.current_selection = value  # e.g., "Machine Learning"
-            button_id_to_select = (
-                f"#filter_{value.replace(' ', '_')}"  # e.g., "#filter_Machine_Learning"
-            )
+            self.current_selection = value
+            target_list_view_id = "filters_list"
+            target_item_id = f"filter_{value.replace(' ', '_')}"
         elif value_type == "cat":
-            self.current_selection = value  # e.g., "cs.AI"
-            button_id_to_select = f"#cat_{value}"  # e.g., "#cat_cs.AI"
+            self.current_selection = value
+            target_list_view_id = "categories_list"
+            target_item_id = f"cat_{value}"
 
-        if button_id_to_select:
+        if target_list_view_id and target_item_id:
             try:
-                button_to_select = self.query_one(button_id_to_select)
-                button_to_select.add_class("selected")
+                target_list_view = self.query_one(f"#{target_list_view_id}", ListView)
+                # Find the item index by its ID
+                for i, item in enumerate(target_list_view.children):
+                    if item.id == target_item_id:
+                        target_list_view.index = i
+                        break
             except Exception:
-                # This could happen if an ID is malformed, but the logic seems robust.
-                pass
+                pass # It might not exist
 
         self.load_articles()
 

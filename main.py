@@ -649,7 +649,7 @@ class ArxivReader(App):
         """Call after the app is mounted."""
         table = self.query_one("#results_table", DataTable)
         table.cursor_type = "row"
-        table.add_column("S", width=3)
+        table.add_column("S", width=4)
         table.add_column("Title")
         table.add_column("Authors", width=18)
         table.add_column("Published")
@@ -1005,25 +1005,31 @@ class ArxivReader(App):
                 
                 def get_short_id(self):
                     return self.id
-                
-                def download_pdf(self, dirpath: str = ".") -> str:
-                    """Download PDF file to specified directory."""
-                    import requests
-                    import os
-                    
-                    # Create filename from article ID
+                def construct_filepath(self, dirpath: str = ".") -> str:
+                    """Construct filepath for PDF file."""
                     filename = f"{self.id}.{self.title[:50].replace('/', '_').replace(':', '_')}.pdf"
                     # Remove any problematic characters
                     filename = "".join(c for c in filename if c.isalnum() or c in '.-_')
                     filepath = os.path.join(dirpath, filename)
-                    
+                    return filepath
+                def is_downloaded(self, dirpath: str = ".") -> bool:
+                    """Check if PDF file exists."""
+                    filepath = self.construct_filepath(dirpath)
+                    return os.path.exists(filepath)
+                def download_pdf(self, dirpath: str = ".") -> str:
+                    """Download PDF file to specified directory."""
+                    import requests
+                    import os
+                    filepath = self.construct_filepath(dirpath)
                     # Download the PDF
-                    response = requests.get(self.pdf_url, stream=True)
-                    response.raise_for_status()
+                    if not self.is_downloaded(dirpath):
+                        response = requests.get(self.pdf_url, stream=True)
+                        response.raise_for_status()
                     
-                    with open(filepath, 'wb') as f:
-                        for chunk in response.iter_content(chunk_size=8192):
-                            f.write(chunk)
+                        with open(filepath, 'wb') as f:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                    
                     
                     return filepath
             
@@ -1072,6 +1078,10 @@ class ArxivReader(App):
             # Add note indicator (only for local database results)
             if not self.current_results_from_global and hasattr(result, 'has_note') and result.has_note:
                 status_parts.append("[green]n[/green]")
+            
+            # if not self.current_results_from_global:
+            #     if result.is_downloaded('articles'):
+            #         status_parts.append("[magenta]d[/magenta]")
 
             # Join status parts or use first one if only one
             if len(status_parts) > 1:
@@ -1299,7 +1309,7 @@ class ArxivReader(App):
 
         articles_dir = "articles"
         try:
-            os.makedirs(articles_dir, exist_ok=True)
+            os.makedirs(articles_dir, exist_ok=True)           
             filepath = selected_article.download_pdf(dirpath=articles_dir)
 
             system = platform.system()
@@ -1542,6 +1552,9 @@ class ArxivReader(App):
         # Add note indicator
         if hasattr(article, 'has_note') and article.has_note:
             status_parts.append("[green]n[/green]")
+
+        # if article.is_downloaded('articles'):
+        #     status_parts.append("[magenta]d[/magenta]")
 
         # Join status parts or use first one if only one
         if len(status_parts) > 1:

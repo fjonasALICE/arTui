@@ -19,3 +19,8 @@ filters:
     # The query is applied to the authors, title, and summary field
     # The query is in sql syntax
     query: "qgp OR quark gluon plasma OR quark-gluon plasma OR heavy-ion"
+  "Prompt Photon":
+    categories:
+      - hep-ex
+      - hep-ph
+    query: "prompt photon OR direct photon"

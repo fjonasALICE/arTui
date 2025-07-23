@@ -649,7 +649,7 @@ class ArxivReader(App):
         """Call after the app is mounted."""
         table = self.query_one("#results_table", DataTable)
         table.cursor_type = "row"
-        table.add_column("S", width=4)
+        table.add_column("S", width=3)
         table.add_column("Title")
         table.add_column("Authors", width=18)
         table.add_column("Published")

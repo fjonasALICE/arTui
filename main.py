@@ -34,6 +34,7 @@ import asyncio
 from database import ArticleDatabase
 from startup_fetcher import StartupFetcher
 from typing import Optional
+from pyinspirehep import Client
 
 
 # Legacy file paths for migration
@@ -81,20 +82,26 @@ class SelectionPopupScreen(ModalScreen):
 class BibtexPopupScreen(ModalScreen):
     """Screen to display bibtex citation information."""
 
-    def __init__(self, bibtex_content, article_title, *args, **kwargs):
+    def __init__(self, bibtex_content, n_citations, inspire_link, article_title, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.bibtex_content = bibtex_content
+        self.n_citations = n_citations
+        self.inspire_link = inspire_link
         self.article_title = article_title
 
     def compose(self) -> ComposeResult:
         yield Vertical(
-            Static(f"BibTeX Citation", id="bibtex_popup_title"),
+            Static("[bold $primary]Inspire-HEP Information[/]", id="bibtex_popup_title"),
+            Static(f"Article: {self.article_title[:60]}{'...' if len(self.article_title) > 60 else ''}", id="bibtex_article_title"),
+            Static(f"Citations: {self.n_citations}", id="citation_count"),
+            Static(f"Inspire Link: [@click=\"app.open_link('{self.inspire_link}')\"]{self.inspire_link}[/]", id="inspire_link"),
+            Static("[bold $primary]BibTeX[/]", id="bibtex_label"),
             VerticalScroll(
                 Static(self.bibtex_content, id="bibtex_content"),
                 id="bibtex_scroll"
             ),
             Horizontal(
-                Button("Copy", variant="primary", id="bibtex_copy_button"),
+                Button("Copy BibTeX", variant="primary", id="bibtex_copy_button"),
                 Button("Close", variant="primary", id="bibtex_close_button"),
                 id="bibtex_buttons"
             ),
@@ -115,8 +122,6 @@ class BibtexPopupScreen(ModalScreen):
     def on_key(self, event) -> None:
         if event.key == "escape":
             self.dismiss()
-
-
 class TagPopupScreen(ModalScreen):
     """Screen to manage tags for an article."""
 
@@ -698,21 +703,21 @@ class ArxivReader(App):
             self.fetch_articles_from_arxiv()
             return
 
-        selection_name = ""
-        if self.current_selection:
-            if self.current_selection == "saved_articles_filter":
-                selection_name = "Saved Articles"
-            elif self.current_selection in self.config.get("filters", {}):
-                selection_name = self.current_selection
-            elif self.current_selection in self.config.get("categories", {}).values():
-                for name, code in self.config["categories"].items():
-                    if code == self.current_selection:
-                        selection_name = name
-                        break
-            if selection_name:
-                self.notify(f"Fetching articles for: {selection_name}")
+        # selection_name = ""
+        # if self.current_selection:
+        #     if self.current_selection == "saved_articles_filter":
+        #         selection_name = "Saved Articles"
+        #     elif self.current_selection in self.config.get("filters", {}):
+        #         selection_name = self.current_selection
+        #     elif self.current_selection in self.config.get("categories", {}).values():
+        #         for name, code in self.config["categories"].items():
+        #             if code == self.current_selection:
+        #                 selection_name = name
+        #                 break
+        #     if selection_name:
+        #         self.notify(f"Fetching articles for: {selection_name}")
 
-        elif self.current_query:
+        if self.current_query:
             self.notify(f"Searching for: {self.current_query}")
 
         # Set flag to indicate results are from local database
@@ -811,7 +816,7 @@ class ArxivReader(App):
                 # Fetch all unread articles from database
                 if self.current_query:
                     # Search within unread articles
-                    unread_results = self.db.get_unread_articles(limit=200)
+                    unread_results = self.db.get_unread_articles()
                     # Filter by search query
                     search_lower = self.current_query.lower()
                     db_results = [
@@ -819,16 +824,16 @@ class ArxivReader(App):
                         if (search_lower in result['title'].lower() or 
                             search_lower in result['summary'].lower() or
                             search_lower in result['authors'].lower())
-                    ][:100]
+                    ]
                 else:
                     # Just get all unread articles
-                    db_results = self.db.get_unread_articles(limit=100)
+                    db_results = self.db.get_unread_articles()
             
             elif self.current_selection == "all_articles_filter":
                 # Fetch all articles from database
                 if self.current_query:
                     # Search within all articles
-                    db_results = self.db.search_articles(self.current_query, limit=100)
+                    db_results = self.db.search_articles(self.current_query)
                     self.call_from_thread(self.notify, f"Searched all articles with query: {self.current_query}, found {len(db_results)} results", timeout=3)
                 else:
                     # Just get all articles (most recent first)
@@ -839,7 +844,7 @@ class ArxivReader(App):
             
             elif self.current_query and not self.current_selection:
                 # Text search across all articles
-                db_results = self.db.search_articles(self.current_query, limit=100)
+                db_results = self.db.search_articles(self.current_query)
             
             elif self.current_selection:
                 if self.current_selection.startswith("tag_"):
@@ -847,7 +852,7 @@ class ArxivReader(App):
                     tag_name = self.current_selection[4:]  # Remove "tag_" prefix
                     if self.current_query:
                         # Search within tagged articles
-                        tagged_results = self.db.get_articles_by_tag(tag_name, limit=200)
+                        tagged_results = self.db.get_articles_by_tag(tag_name)
                         # Filter by search query
                         search_lower = self.current_query.lower()
                         db_results = [
@@ -855,29 +860,34 @@ class ArxivReader(App):
                             if (search_lower in result['title'].lower() or 
                                 search_lower in result['summary'].lower() or
                                 search_lower in result['authors'].lower())
-                        ][:100]
+                        ]
                     else:
                         # Just get articles for this tag
-                        db_results = self.db.get_articles_by_tag(tag_name, limit=100)
+                        db_results = self.db.get_articles_by_tag(tag_name)
                 
                 elif self.current_selection in self.config.get("filters", {}):
                     # Handle filter - search by filter criteria
                     filter_details = self.config["filters"][self.current_selection]
                     search_query = self.current_query or ""
-                    
-                    if filter_details.get("query"):
-                        if search_query:
-                            search_query = f"{search_query} {filter_details['query']}"
-                        else:
-                            search_query = filter_details["query"]
-                    
-                    if search_query:
-                        db_results = self.db.search_articles(search_query, limit=100)
-                    elif filter_details.get("categories"):
-                        # Get articles by categories
+                    filter_query = filter_details.get("query")
+                    filter_categories = filter_details.get("categories")
+
+                    # If both query and categories are present, use the new combined search
+                    if (search_query or filter_query) and filter_categories:
+                        # Combine user query and filter query if both exist
+                        combined_query = search_query
+                        if filter_query:
+                            combined_query = f"{combined_query} {filter_query}".strip()
+                        db_results = self.db.search_articles_in_categories(combined_query, filter_categories)
+                    elif search_query or filter_query:
+                        # Only query, no categories
+                        combined_query = search_query or filter_query
+                        db_results = self.db.search_articles(combined_query)
+                    elif filter_categories:
+                        # Only categories, no query
                         all_results = []
-                        for cat in filter_details["categories"]:
-                            cat_results = self.db.get_articles_by_category(cat, limit=50)
+                        for cat in filter_categories:
+                            cat_results = self.db.get_articles_by_category(cat)
                             all_results.extend(cat_results)
                         # Remove duplicates and sort by published date
                         seen = set()
@@ -886,7 +896,7 @@ class ArxivReader(App):
                             if result['id'] not in seen:
                                 seen.add(result['id'])
                                 unique_results.append(result)
-                        db_results = sorted(unique_results, key=lambda x: x['published_date'], reverse=True)[:100]
+                        db_results = sorted(unique_results, key=lambda x: x['published_date'], reverse=True)
                     else:
                         db_results = []
 
@@ -894,7 +904,7 @@ class ArxivReader(App):
                     # Handle category selection
                     if self.current_query:
                         # Search within category
-                        category_results = self.db.get_articles_by_category(self.current_selection, limit=200)
+                        category_results = self.db.get_articles_by_category(self.current_selection)
                         # Filter by search query
                         search_lower = self.current_query.lower()
                         db_results = [
@@ -902,10 +912,10 @@ class ArxivReader(App):
                             if (search_lower in result['title'].lower() or 
                                 search_lower in result['summary'].lower() or
                                 search_lower in result['authors'].lower())
-                        ][:100]
+                        ]
                     else:
                         # Just get articles for this category
-                        db_results = self.db.get_articles_by_category(self.current_selection, limit=100)
+                        db_results = self.db.get_articles_by_category(self.current_selection)
                 else:
                     db_results = []
             else:
@@ -1560,81 +1570,65 @@ class ArxivReader(App):
             title="Inspire-HEP", 
             timeout=5
         )
-        
+
+        # get literature entry
+        client = Client()
         try:
-            # Search for the article on inspire-hep using arxiv ID
-            # Strip version number (e.g. v1, v2) from arxiv ID for inspire API
             base_article_id = article_id.split('v')[0] if 'v' in article_id else article_id
-            search_url = f"https://inspirehep.net/api/arxiv/{base_article_id}"
-            params = {
-                'format': 'json'
-            }
-            # First try to get the bibtex directly from the arxiv ID
+            search_url = f"https://inspirehep.net/api/literature?q=arxiv:{base_article_id}&format=json"
+            response = requests.get(search_url, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            if not data.get('hits') or len(data['hits']['hits']) == 0:
+                self.call_from_thread(
+                    self.notify,
+                    f"No citation found for {base_article_id}",
+                    title="Inspire-HEP", 
+                    severity="warning",
+                    timeout=5
+                )
+                return
+            # Get inspire ID from first result
+            inspire_id = data['hits']['hits'][0]['metadata'].get('control_number')
+            literature_entry = client.get_literature_object(str(inspire_id))
+            n_citations = literature_entry.get_citation_count()
+            n_citations_text = f"Citations: {n_citations}"
+            self.call_from_thread(
+                self.notify,
+                n_citations_text,
+                title="Inspire-HEP",
+                timeout=5
+            )
+            # Get bibtex entry
             bibtex_url = f"https://inspirehep.net/api/literature?q=arxiv:{base_article_id}&format=bibtex"
             bibtex_response = requests.get(bibtex_url, timeout=10)
             bibtex_response.raise_for_status()
             
             bibtex_content = bibtex_response.text
+
+            inspire_link = f"https://inspirehep.net/literature/{inspire_id}"
             
-            if not bibtex_content or bibtex_content.strip() == '':
-                # If direct bibtex lookup fails, try the metadata API
-                response = requests.get(search_url, params=params, timeout=10)
-                response.raise_for_status()
-                
-                data = response.json()
-                
-                if not data.get('hits') or len(data['hits']['hits']) == 0:
-                    self.call_from_thread(
-                        self.notify,
-                        f"No citation found for {base_article_id}",
-                        title="Inspire-HEP", 
-                        severity="warning",
-                        timeout=5
-                    )
-                    return
-                
-                # Get inspire ID from first result
-                inspire_id = data['hits']['hits'][0]['metadata'].get('control_number')
-                if not inspire_id:
-                    self.call_from_thread(
-                        self.notify,
-                        f"Could not find inspire ID for {base_article_id}",
-                        title="Inspire-HEP",
-                        severity="warning", 
-                        timeout=5
-                    )
-                    return
-                
-                # Try bibtex lookup with inspire ID
-                bibtex_url = f"https://inspirehep.net/api/literature/{inspire_id}?format=bibtex"
-                bibtex_response = requests.get(bibtex_url, timeout=10)
-                bibtex_response.raise_for_status()
-                bibtex_content = bibtex_response.text
-                
-                if not bibtex_content or bibtex_content.strip() == '':
-                    self.call_from_thread(
-                        self.notify,
-                        f"Empty bibtex response for {article_id}",
-                        title="Inspire-HEP",
-                        severity="warning",
-                        timeout=5
-                    )
-                    return
+            # Copy to clipboard
+            pyperclip.copy(bibtex_content)
             
+            # Notify user
+            self.call_from_thread(
+                self.notify,
+                "BibTeX citation copied to clipboard!",
+                title="Inspire-HEP",
+                timeout=5
+            )
             # Show the bibtex popup
             self.call_from_thread(
                 self.push_screen,
-                BibtexPopupScreen(bibtex_content, article.title)
+                BibtexPopupScreen(
+                    bibtex_content,
+                    n_citations,
+                    inspire_link,
+                    article.title
+                )
             )
-            
-        except requests.exceptions.RequestException as e:
-            self.call_from_thread(
-                self.notify,
-                f"Network error: {str(e)}",
-                title="Inspire-HEP Error",
-                severity="error",
-                timeout=5
-            )
+
         except Exception as e:
             self.call_from_thread(
                 self.notify,
@@ -1643,7 +1637,10 @@ class ArxivReader(App):
                 severity="error",
                 timeout=5
             )
+        
 
+
+    
     def selection_popup_callback(self, selection_value):
         """Callback for when a view is selected from the popup."""
         if not selection_value:

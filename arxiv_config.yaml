@@ -1,8 +1,11 @@
+# The categories are used to populate your local database with articles from the arXiv.
 categories:
   HEP Experiments: 'hep-ex'
   HEP Theory: 'hep-th'
   HEP Phenomenology: 'hep-ph'
   Nuclear Experiments: 'nucl-ex'
+
+# The filters may only use categories from the categories that are populated to your local database
 filters:
   "ALICE":
     categories:
@@ -13,4 +16,6 @@ filters:
     categories:
       - hep-ex
       - hep-ph
+    # The query is applied to the authors, title, and summary field
+    # The query is in sql syntax
     query: "qgp OR quark gluon plasma OR quark-gluon plasma OR heavy-ion"

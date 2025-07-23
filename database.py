@@ -241,7 +241,7 @@ class ArticleDatabase:
         
         return added_count
     
-    def get_articles_by_category(self, category: str, limit: int = 100) -> List[Dict]:
+    def get_articles_by_category(self, category: str) -> List[Dict]:
         """Get articles by category with status information."""
         with self.get_connection() as conn:
             cursor = conn.execute("""
@@ -252,12 +252,11 @@ class ArticleDatabase:
                 LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
                 WHERE a.categories LIKE ?
                 ORDER BY a.published_date DESC
-                LIMIT ?
-            """, (f'%"{category}"%', limit))
+            """, (f'%"{category}"%'))
             
             return [dict(row) for row in cursor.fetchall()]
     
-    def search_articles(self, query: str, limit: int = 100) -> List[Dict]:
+    def search_articles(self, query: str) -> List[Dict]:
         """Search articles by title, authors, or summary."""
         with self.get_connection() as conn:
             search_term = f"%{query}%"
@@ -269,9 +268,35 @@ class ArticleDatabase:
                 LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
                 WHERE a.title LIKE ? OR a.authors LIKE ? OR a.summary LIKE ?
                 ORDER BY a.published_date DESC
-                LIMIT ?
-            """, (search_term, search_term, search_term, limit))
+            """, (search_term, search_term, search_term))
             
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def search_articles_in_categories(self, query: str, categories: List[str]) -> List[Dict]:
+        """Search articles by title, authors, or summary, restricted to given categories."""
+        if not categories:
+            return self.search_articles(query)
+        with self.get_connection() as conn:
+            search_term = f"%{query}%"
+            # Build category conditions
+            category_conditions = []
+            params = []
+            for cat in categories:
+                category_conditions.append("a.categories LIKE ?")
+                params.append(f'%"{cat}"%')
+            category_clause = " OR ".join(category_conditions)
+            sql = f'''
+                SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
+                       CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
+                FROM articles a
+                LEFT JOIN article_status s ON a.id = s.article_id
+                LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
+                WHERE ({category_clause})
+                  AND (a.title LIKE ? OR a.authors LIKE ? OR a.summary LIKE ?)
+                ORDER BY a.published_date DESC
+            '''
+            params += [search_term, search_term, search_term]
+            cursor = conn.execute(sql, params)
             return [dict(row) for row in cursor.fetchall()]
     
     def get_saved_articles(self) -> List[Dict]:
@@ -480,7 +505,6 @@ class ArticleDatabase:
                 WHERE citations_updated_at IS NULL 
                    OR citations_updated_at < ?
                 ORDER BY published_date DESC
-                LIMIT 100
             """, (cutoff_date,))
             
             return [dict(row) for row in cursor.fetchall()]
@@ -643,7 +667,7 @@ class ArticleDatabase:
             print(f"DEBUG: get_article_tags for {article_id}: {tags}")
             return tags
     
-    def get_articles_by_tag(self, tag_name: str, limit: int = 100) -> List[Dict]:
+    def get_articles_by_tag(self, tag_name: str) -> List[Dict]:
         """Get articles with a specific tag."""
         with self.get_connection() as conn:
             cursor = conn.execute("""
@@ -655,8 +679,7 @@ class ArticleDatabase:
                 INNER JOIN tags t ON at.tag_id = t.id
                 WHERE t.name = ?
                 ORDER BY a.published_date DESC
-                LIMIT ?
-            """, (tag_name, limit))
+            """, (tag_name,))
             return [dict(row) for row in cursor.fetchall()]
     
     def get_unread_count_by_tag(self, tag_name: str) -> int:
@@ -689,7 +712,7 @@ class ArticleDatabase:
             """, (article_id,))
             return cursor.fetchone() is not None
 
-    def get_unread_articles(self, limit: int = 100) -> List[Dict]:
+    def get_unread_articles(self) -> List[Dict]:
         """Get all unread articles."""
         with self.get_connection() as conn:
             cursor = conn.execute("""
@@ -700,8 +723,7 @@ class ArticleDatabase:
                 LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
                 WHERE s.is_viewed IS NULL OR s.is_viewed = 0
                 ORDER BY a.published_date DESC
-                LIMIT ?
-            """, (limit,))
+            """)
             
             results = [dict(row) for row in cursor.fetchall()]
             return results

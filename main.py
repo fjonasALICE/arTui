@@ -322,6 +322,7 @@ class ArxivReader(App):
         ("i", "show_inspire_citation", "Show INSPIRE Citation"),
         ("t", "manage_tags", "Manage Tags"),
         ("n", "manage_notes", "Notes"),
+        ("x", "mark_all_read", "Mark All Read"),
         ("q", "quit", "Quit"),
     ]
 
@@ -369,6 +370,8 @@ class ArxivReader(App):
             new_selection = "saved_articles_filter"
         elif widget_id == "unread_articles_filter":
             new_selection = "unread_articles_filter"
+        elif widget_id == "notes_articles_filter":
+            new_selection = "notes_articles_filter"
 
         if new_selection:
             self.current_selection = new_selection
@@ -426,6 +429,9 @@ class ArxivReader(App):
                 saved_unread_count = self.db.get_unread_saved_count()
                 saved_text = f"Saved Articles ({saved_unread_count})" if saved_unread_count > 0 else "Saved Articles"
                 
+                notes_unread_count = self.db.get_unread_count_with_notes()
+                notes_text = f"Notes ({notes_unread_count})" if notes_unread_count > 0 else "Notes"
+                
                 yield Static("My Vault", classes="pane_title")
                 yield ListView(
                     ListItem(
@@ -440,26 +446,29 @@ class ArxivReader(App):
                         Static(saved_text), 
                         id="saved_articles_filter"
                     ),
+                    ListItem(
+                        Static(notes_text),
+                        id="notes_articles_filter"
+                    ),
                     id="saved_articles_list",
                 )
 
                 with Vertical(id="tags_container"):
                     all_tags = self.db.get_all_tags()
-                    if all_tags:
-                        yield Static("Tags", classes="pane_title")
-                        tag_items = []
-                        for tag in all_tags:
-                            unread_count = self.db.get_unread_count_by_tag(tag['name'])
-                            tag_text = f"{tag['name']} ({unread_count})" if unread_count > 0 else tag['name']
-                            sanitized_tag_name = re.sub(r'[^a-zA-Z0-9_-]', '_', tag['name'])
-                            
-                            tag_item = ListItem(
-                                Static(tag_text),
-                                id=f"tag_{sanitized_tag_name}",
-                            )
-                            tag_item.original_tag_name = tag['name']
-                            tag_items.append(tag_item)
-                        yield ListView(*tag_items, id="tags_list")
+                    yield Static("Tags", classes="pane_title")
+                    tag_items = []
+                    for tag in all_tags:
+                        unread_count = self.db.get_unread_count_by_tag(tag['name'])
+                        tag_text = f"{tag['name']} ({unread_count})" if unread_count > 0 else tag['name']
+                        sanitized_tag_name = re.sub(r'[^a-zA-Z0-9_-]', '_', tag['name'])
+                        
+                        tag_item = ListItem(
+                            Static(tag_text),
+                            id=f"tag_{sanitized_tag_name}",
+                        )
+                        tag_item.original_tag_name = tag['name']
+                        tag_items.append(tag_item)
+                    yield ListView(*tag_items, id="tags_list")
 
                 with Vertical(id="filters_container"):
                     if self.config["filters"]:
@@ -524,6 +533,8 @@ class ArxivReader(App):
                         title = "Unread Articles"
                     elif self.current_selection == "saved_articles_filter":
                         title = "Saved Articles"
+                    elif self.current_selection == "notes_articles_filter":
+                        title = "Articles with Notes"
                     elif self.current_selection.startswith("tag_"):
                         tag_name = self.current_selection[4:]  # Remove "tag_" prefix
                         title = f"Tag: {tag_name}"
@@ -574,6 +585,16 @@ class ArxivReader(App):
                 saved_item = self.query_one("#saved_articles_filter", ListItem)
                 saved_static = saved_item.query_one(Static)
                 saved_static.update(saved_text)
+            except Exception:
+                pass
+            
+            # Update Notes count
+            notes_unread_count = self.db.get_unread_count_with_notes()
+            notes_text = f"Notes ({notes_unread_count})" if notes_unread_count > 0 else "Notes"
+            try:
+                notes_item = self.query_one("#notes_articles_filter", ListItem)
+                notes_static = notes_item.query_one(Static)
+                notes_static.update(notes_text)
             except Exception:
                 pass
             
@@ -703,20 +724,6 @@ class ArxivReader(App):
             self.fetch_articles_from_arxiv()
             return
 
-        # selection_name = ""
-        # if self.current_selection:
-        #     if self.current_selection == "saved_articles_filter":
-        #         selection_name = "Saved Articles"
-        #     elif self.current_selection in self.config.get("filters", {}):
-        #         selection_name = self.current_selection
-        #     elif self.current_selection in self.config.get("categories", {}).values():
-        #         for name, code in self.config["categories"].items():
-        #             if code == self.current_selection:
-        #                 selection_name = name
-        #                 break
-        #     if selection_name:
-        #         self.notify(f"Fetching articles for: {selection_name}")
-
         if self.current_query:
             self.notify(f"Searching for: {self.current_query}")
 
@@ -842,6 +849,23 @@ class ArxivReader(App):
                     debug_log(f"get_all_articles returned {len(db_results)} articles")
                     self.call_from_thread(self.notify, f"Loaded {len(db_results)} total articles", timeout=3)
             
+            elif self.current_selection == "notes_articles_filter":
+                # Fetch articles with notes from database
+                if self.current_query:
+                    # Search within articles with notes
+                    notes_results = self.db.get_articles_with_notes()
+                    # Filter by search query
+                    search_lower = self.current_query.lower()
+                    db_results = [
+                        result for result in notes_results 
+                        if (search_lower in result['title'].lower() or 
+                            search_lower in result['summary'].lower() or
+                            search_lower in result['authors'].lower())
+                    ]
+                else:
+                    # Just get all articles with notes
+                    db_results = self.db.get_articles_with_notes()
+            
             elif self.current_query and not self.current_selection:
                 # Text search across all articles
                 db_results = self.db.search_articles(self.current_query)
@@ -915,6 +939,7 @@ class ArxivReader(App):
                         ]
                     else:
                         # Just get articles for this category
+                        self.notify(f"Fetching articles for category: {self.current_selection}")
                         db_results = self.db.get_articles_by_category(self.current_selection)
                 else:
                     db_results = []
@@ -1196,6 +1221,55 @@ class ArxivReader(App):
             else:
                 self.notify(f"Article is already unread")
 
+    def action_mark_all_read(self) -> None:
+        """Mark all articles currently displayed in the results table as read."""
+        if not self.search_results:
+            self.notify("No articles to mark as read", severity="warning")
+            return
+
+        table = self.query_one("#results_table", DataTable)
+        marked_count = 0
+        skipped_count = 0
+
+        for row_index, article in enumerate(self.search_results):
+            article_id = article.get_short_id()
+
+            # For global search results, we need to add the article to database first
+            if self.current_results_from_global:
+                try:
+                    if not self.db.add_article(article):
+                        # Article already exists in database, that's fine
+                        pass
+                except Exception as e:
+                    self.notify(f"Error adding article {article_id} to database: {e}", severity="error")
+                    continue
+
+            # Only mark as viewed if it's not already viewed and not saved
+            # (saved articles should remain in their saved state)
+            if not (hasattr(article, 'is_viewed') and article.is_viewed):
+                if self.db.mark_article_viewed(article_id):
+                    article.is_viewed = True
+                    marked_count += 1
+                    
+                    # Update table cell - only if not saved
+                    if not (hasattr(article, 'is_saved') and article.is_saved):
+                        # Update the status cell to show as read
+                        self._update_table_row_status(row_index, article)
+            else:
+                skipped_count += 1
+
+        # Refresh left panel counts since articles were marked as read
+        self.refresh_left_panel_counts()
+
+        # Provide user feedback
+        if marked_count > 0:
+            if skipped_count > 0:
+                self.notify(f"Marked {marked_count} articles as read ({skipped_count} already read)")
+            else:
+                self.notify(f"Marked all {marked_count} articles as read")
+        else:
+            self.notify("All articles were already read")
+
     def action_download_and_open_pdf(self) -> None:
         """Download the PDF for the selected article and open it."""
         table = self.query_one("#results_table", DataTable)
@@ -1262,7 +1336,8 @@ class ArxivReader(App):
         """Show a popup to select a view (category, filter, or saved)."""
         options = [
             ("Unread", "special:unread_articles_filter"),
-            ("Saved Articles", "special:saved_articles_filter")
+            ("Saved Articles", "special:saved_articles_filter"),
+            ("Notes", "special:notes_articles_filter")
         ]
 
         filter_options = [

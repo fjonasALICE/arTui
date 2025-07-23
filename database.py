@@ -242,6 +242,9 @@ class ArticleDatabase:
         return added_count
     
     def get_articles_by_category(self, category: str) -> List[Dict]:
+        # write category to debug log file
+        with open("debug.log", "a") as f:
+            f.write(f"DEBUG: get_articles_by_category called with category {category}\n")
         """Get articles by category with status information."""
         with self.get_connection() as conn:
             cursor = conn.execute("""
@@ -250,9 +253,12 @@ class ArticleDatabase:
                 FROM articles a
                 LEFT JOIN article_status s ON a.id = s.article_id
                 LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
-                WHERE a.categories LIKE ?
+                WHERE EXISTS (
+                    SELECT 1 FROM json_each(a.categories) 
+                    WHERE json_each.value = ?
+                )
                 ORDER BY a.published_date DESC
-            """, (f'%"{category}"%'))
+            """, (category,))
             
             return [dict(row) for row in cursor.fetchall()]
     
@@ -278,12 +284,12 @@ class ArticleDatabase:
             return self.search_articles(query)
         with self.get_connection() as conn:
             search_term = f"%{query}%"
-            # Build category conditions
+            # Build category conditions using JSON functions
             category_conditions = []
             params = []
             for cat in categories:
-                category_conditions.append("a.categories LIKE ?")
-                params.append(f'%"{cat}"%')
+                category_conditions.append("EXISTS (SELECT 1 FROM json_each(a.categories) WHERE json_each.value = ?)")
+                params.append(cat)
             category_clause = " OR ".join(category_conditions)
             sql = f'''
                 SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
@@ -511,13 +517,28 @@ class ArticleDatabase:
 
     def get_unread_count_by_category(self, category: str) -> int:
         """Get count of unread articles for a specific category."""
+        print(f"DEBUG: get_unread_count_by_category called with category={repr(category)}, type={type(category)}")
+        
+        # Ensure category is a string
+        if not isinstance(category, str):
+            print(f"ERROR: category parameter is not a string: {repr(category)}")
+            # Convert to string if it's a single-item list/tuple
+            if hasattr(category, '__iter__') and len(category) == 1:
+                category = str(category[0])
+                print(f"DEBUG: Converted to string: {repr(category)}")
+            else:
+                raise ValueError(f"Invalid category parameter: {repr(category)}")
+        
         with self.get_connection() as conn:
             cursor = conn.execute("""
                 SELECT COUNT(*) as count
                 FROM articles a
                 LEFT JOIN article_status s ON a.id = s.article_id
-                WHERE a.categories LIKE ? AND (s.is_viewed IS NULL OR s.is_viewed = 0)
-            """, (f'%"{category}"%',))
+                WHERE EXISTS (
+                    SELECT 1 FROM json_each(a.categories) 
+                    WHERE json_each.value = ?
+                ) AND (s.is_viewed IS NULL OR s.is_viewed = 0)
+            """, (category,))
             return cursor.fetchone()['count']
     
     def get_unread_count_by_filter(self, filter_config: Dict) -> int:
@@ -532,8 +553,8 @@ class ArticleDatabase:
                 params = []
                 
                 for cat in filter_config["categories"]:
-                    category_conditions.append("a.categories LIKE ?")
-                    params.append(f'%"{cat}"%')
+                    category_conditions.append("EXISTS (SELECT 1 FROM json_each(a.categories) WHERE json_each.value = ?)")
+                    params.append(cat)
                 
                 category_clause = " OR ".join(category_conditions)
                 
@@ -757,4 +778,31 @@ class ArticleDatabase:
             
             results = [dict(row) for row in cursor.fetchall()]
             
-            return results 
+            return results
+    
+    def get_articles_with_notes(self) -> List[Dict]:
+        """Get all articles that have notes."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
+                       CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
+                FROM articles a
+                LEFT JOIN article_status s ON a.id = s.article_id
+                LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
+                WHERE a.notes_file_path IS NOT NULL
+                ORDER BY a.published_date DESC
+            """)
+            
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def get_unread_count_with_notes(self) -> int:
+        """Get count of unread articles that have notes."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count
+                FROM articles a
+                LEFT JOIN article_status s ON a.id = s.article_id
+                WHERE a.notes_file_path IS NOT NULL 
+                AND (s.is_viewed IS NULL OR s.is_viewed = 0)
+            """)
+            return cursor.fetchone()['count'] 

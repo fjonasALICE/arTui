@@ -1,7 +1,0 @@
-textual
-arxiv
-pyyaml
-requests 
-pyperclip
-pygments
-pyinspirehep

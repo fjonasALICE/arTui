@@ -1,25 +1,19 @@
-import asyncio
+"""Article fetching functionality for ArTui."""
+
 import arxiv
-import yaml
 from datetime import datetime, timedelta
-from typing import Dict, List
-from database import ArticleDatabase
+from typing import Dict, List, Optional
+
+from .database import ArticleDatabase
+from .config import ConfigManager
 
 
-class StartupFetcher:
-    """Handles fetching articles for all categories at startup."""
+class ArticleFetcher:
+    """Handles fetching articles from arXiv API."""
     
-    def __init__(self, db: ArticleDatabase, config_file: str = "arxiv_config.yaml"):
+    def __init__(self, db: ArticleDatabase, config_manager: ConfigManager):
         self.db = db
-        self.config = self.load_config(config_file)
-    
-    def load_config(self, config_file: str) -> Dict:
-        """Load configuration from YAML file."""
-        try:
-            with open(config_file, "r") as f:
-                return yaml.safe_load(f)
-        except FileNotFoundError:
-            return {"categories": {}, "filters": {}}
+        self.config_manager = config_manager
     
     def should_fetch_category(self, category_code: str, hours_threshold: int = 6) -> bool:
         """Check if category should be fetched based on last fetch time."""
@@ -33,21 +27,24 @@ class StartupFetcher:
         
         return last_fetched < threshold_time
     
+    def _build_category_query(self, category_code: str) -> str:
+        """Build arXiv query string for a category."""
+        if "." not in category_code and "-" not in category_code:
+            # Top-level category, search all subcategories
+            return f"cat:{category_code}.*"
+        elif category_code in ["q-bio", "q-fin"]:
+            # Special cases
+            return f"cat:{category_code}.*"
+        else:
+            # Specific subcategory
+            return f"cat:{category_code}"
+    
     def fetch_category_articles(self, category_code: str, category_name: str, max_results: int = 200) -> int:
         """Fetch articles for a specific category and store in database."""
         print(f"Fetching articles for {category_name} ({category_code})...")
         
         try:
-            # Build query for category
-            if "." not in category_code and "-" not in category_code:
-                # Top-level category, search all subcategories
-                query = f"cat:{category_code}.*"
-            elif category_code in ["q-bio", "q-fin"]:
-                # Special cases
-                query = f"cat:{category_code}.*"
-            else:
-                # Specific subcategory
-                query = f"cat:{category_code}"
+            query = self._build_category_query(category_code)
             
             # Search arXiv
             search = arxiv.Search(
@@ -86,12 +83,7 @@ class StartupFetcher:
             if filter_config.get("categories"):
                 category_queries = []
                 for cat in filter_config["categories"]:
-                    if "." not in cat and "-" not in cat:
-                        category_queries.append(f"cat:{cat}.*")
-                    elif cat in ["q-bio", "q-fin"]:
-                        category_queries.append(f"cat:{cat}.*")
-                    else:
-                        category_queries.append(f"cat:{cat}")
+                    category_queries.append(self._build_category_query(cat))
                 
                 if category_queries:
                     search_terms.append("(" + " OR ".join(category_queries) + ")")
@@ -128,11 +120,13 @@ class StartupFetcher:
         """Fetch articles for all configured categories and filters."""
         print("Starting article fetch for all categories...")
         results = {}
+        config = self.config_manager.get_config()
         
         # Fetch categories
-        if self.config.get("categories"):
-            print(f"\nFetching {len(self.config['categories'])} categories:")
-            for category_name, category_code in self.config["categories"].items():
+        categories = config.get("categories", {})
+        if categories:
+            print(f"\nFetching {len(categories)} categories:")
+            for category_name, category_code in categories.items():
                 if force or self.should_fetch_category(category_code):
                     added_count = self.fetch_category_articles(category_code, category_name)
                     results[f"category_{category_code}"] = added_count
@@ -141,9 +135,10 @@ class StartupFetcher:
                     results[f"category_{category_code}"] = 0
         
         # Fetch filters
-        if self.config.get("filters"):
-            print(f"\nFetching {len(self.config['filters'])} filters:")
-            for filter_name, filter_config in self.config["filters"].items():
+        filters = config.get("filters", {})
+        if filters:
+            print(f"\nFetching {len(filters)} filters:")
+            for filter_name, filter_config in filters.items():
                 filter_key = f"filter_{filter_name}"
                 if force or self.should_fetch_category(filter_key):
                     added_count = self.fetch_filter_articles(filter_name, filter_config)
@@ -166,22 +161,18 @@ class StartupFetcher:
         """Fetch only recent articles from all categories and filters (lighter startup option)."""
         print(f"Fetching recent articles from last {days} days...")
         results = {}
+        config = self.config_manager.get_config()
         
         # Calculate date filter
         from_date = datetime.now() - timedelta(days=days)
         
         # Fetch categories
-        if self.config.get("categories"):
-            for category_name, category_code in self.config["categories"].items():
+        categories = config.get("categories", {})
+        if categories:
+            for category_name, category_code in categories.items():
                 print(f"Fetching recent {category_name} articles...")
                 try:
-                    # Build query with date filter
-                    if "." not in category_code and "-" not in category_code:
-                        query = f"cat:{category_code}.*"
-                    elif category_code in ["q-bio", "q-fin"]:
-                        query = f"cat:{category_code}.*"
-                    else:
-                        query = f"cat:{category_code}"
+                    query = self._build_category_query(category_code)
                     
                     search = arxiv.Search(
                         query=query,
@@ -209,8 +200,9 @@ class StartupFetcher:
                     results[f"category_{category_code}"] = 0
         
         # Fetch filters
-        if self.config.get("filters"):
-            for filter_name, filter_config in self.config["filters"].items():
+        filters = config.get("filters", {})
+        if filters:
+            for filter_name, filter_config in filters.items():
                 print(f"Fetching recent {filter_name} filter articles...")
                 try:
                     search_terms = []
@@ -223,12 +215,7 @@ class StartupFetcher:
                     if filter_config.get("categories"):
                         category_queries = []
                         for cat in filter_config["categories"]:
-                            if "." not in cat and "-" not in cat:
-                                category_queries.append(f"cat:{cat}.*")
-                            elif cat in ["q-bio", "q-fin"]:
-                                category_queries.append(f"cat:{cat}.*")
-                            else:
-                                category_queries.append(f"cat:{cat}")
+                            category_queries.append(self._build_category_query(cat))
                         
                         if category_queries:
                             search_terms.append("(" + " OR ".join(category_queries) + ")")
@@ -269,35 +256,18 @@ class StartupFetcher:
         print(f"\nRecent fetch complete! Added {total_added} new articles.")
         
         return results
-
-
-def main():
-    """Command-line interface for testing the fetcher."""
-    import argparse
     
-    parser = argparse.ArgumentParser(description="Fetch arXiv articles for configured categories")
-    parser.add_argument("--force", action="store_true", help="Force fetch even if recently fetched")
-    parser.add_argument("--recent", type=int, metavar="DAYS", help="Fetch only recent articles from last N days")
-    parser.add_argument("--config", default="arxiv_config.yaml", help="Configuration file path")
-    parser.add_argument("--db", default="arxiv_articles.db", help="Database file path")
-    
-    args = parser.parse_args()
-    
-    # Initialize database and fetcher
-    db = ArticleDatabase(args.db)
-    fetcher = StartupFetcher(db, args.config)
-    
-    # Migrate existing data if text files exist
-    migration_stats = db.migrate_from_text_files("saved_articles.txt", "viewed_articles.txt")
-    if migration_stats["saved_migrated"] > 0 or migration_stats["viewed_migrated"] > 0:
-        print(f"Migrated {migration_stats['saved_migrated']} saved and {migration_stats['viewed_migrated']} viewed articles")
-    
-    # Fetch articles
-    if args.recent:
-        fetcher.fetch_recent_articles(days=args.recent)
-    else:
-        fetcher.fetch_all_categories(force=args.force)
-
-
-if __name__ == "__main__":
-    main() 
+    def search_arxiv(self, query: str, max_results: int = 100) -> List[arxiv.Result]:
+        """Search arXiv directly for global search functionality."""
+        try:
+            search = arxiv.Search(
+                query=query,
+                max_results=max_results,
+                sort_by=arxiv.SortCriterion.Relevance
+            )
+            
+            return list(search.results())
+            
+        except Exception as e:
+            print(f"Error searching arXiv: {e}")
+            return []

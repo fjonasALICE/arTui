@@ -1,15 +1,27 @@
+"""Database management for ArTui."""
+
+import os
 import sqlite3
 import json
 from datetime import datetime
 from typing import List, Dict, Optional, Set
 import arxiv
+from .user_dirs import get_user_dirs
 
 
 class ArticleDatabase:
     """Database manager for ArXiv articles with SQLite backend."""
     
-    def __init__(self, db_path: str = "arxiv_articles.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: Optional[str] = None, custom_user_dir: Optional[str] = None):
+        # Initialize user directories
+        self.user_dirs = get_user_dirs(custom_user_dir)
+        
+        # Use provided path or default to user data directory
+        if db_path is None:
+            self.db_path = self.user_dirs.database_file
+        else:
+            self.db_path = db_path
+            
         self.init_database()
     
     def get_connection(self) -> sqlite3.Connection:
@@ -35,7 +47,8 @@ class ArticleDatabase:
                     citation_count INTEGER DEFAULT 0,  -- Number of citations
                     citations_updated_at TEXT,     -- When citations were last fetched
                     created_at TEXT NOT NULL,      -- When first fetched
-                    updated_at TEXT NOT NULL       -- Last update
+                    updated_at TEXT NOT NULL,      -- Last update
+                    notes_file_path TEXT           -- Path to notes file
                 )
             """)
             
@@ -83,31 +96,25 @@ class ArticleDatabase:
             """)
             
             # Create indexes for performance
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_articles_published ON articles (published_date)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_articles_categories ON articles (categories)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_status_saved ON article_status (is_saved)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_status_viewed ON article_status (is_viewed)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_tags_name ON tags (name)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_article_tags_article ON article_tags (article_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_article_tags_tag ON article_tags (tag_id)")
-            
-            # Verify tables were created
-            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-            tables = [row[0] for row in cursor.fetchall()]
-            print(f"DEBUG: Database tables: {tables}")
-            
-            # Check if tags table has the right structure
-            cursor = conn.execute("PRAGMA table_info(tags)")
-            tag_columns = [col[1] for col in cursor.fetchall()]
-            print(f"DEBUG: Tags table columns: {tag_columns}")
-            
-            # Check if article_tags table has the right structure
-            cursor = conn.execute("PRAGMA table_info(article_tags)")
-            article_tags_columns = [col[1] for col in cursor.fetchall()]
-            print(f"DEBUG: Article_tags table columns: {article_tags_columns}")
+            self._create_indexes(conn)
             
             # Run database migrations
             self._migrate_database()
+    
+    def _create_indexes(self, conn: sqlite3.Connection) -> None:
+        """Create database indexes for better performance."""
+        indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_articles_published ON articles (published_date)",
+            "CREATE INDEX IF NOT EXISTS idx_articles_categories ON articles (categories)",
+            "CREATE INDEX IF NOT EXISTS idx_status_saved ON article_status (is_saved)",
+            "CREATE INDEX IF NOT EXISTS idx_status_viewed ON article_status (is_viewed)",
+            "CREATE INDEX IF NOT EXISTS idx_tags_name ON tags (name)",
+            "CREATE INDEX IF NOT EXISTS idx_article_tags_article ON article_tags (article_id)",
+            "CREATE INDEX IF NOT EXISTS idx_article_tags_tag ON article_tags (tag_id)",
+        ]
+        
+        for index_sql in indexes:
+            conn.execute(index_sql)
     
     def _migrate_database(self) -> None:
         """Run database migrations for schema updates."""
@@ -117,15 +124,12 @@ class ArticleDatabase:
             columns = [col[1] for col in cursor.fetchall()]
             
             if 'citation_count' not in columns:
-                # Add citation_count column
                 conn.execute("ALTER TABLE articles ADD COLUMN citation_count INTEGER DEFAULT 0")
                 
             if 'citations_updated_at' not in columns:
-                # Add citations_updated_at column
                 conn.execute("ALTER TABLE articles ADD COLUMN citations_updated_at TEXT")
 
             if 'notes_file_path' not in columns:
-                # Add notes_file_path column
                 conn.execute("ALTER TABLE articles ADD COLUMN notes_file_path TEXT")
     
     def article_exists(self, article_id: str) -> bool:
@@ -133,23 +137,6 @@ class ArticleDatabase:
         with self.get_connection() as conn:
             cursor = conn.execute("SELECT 1 FROM articles WHERE id = ?", (article_id,))
             return cursor.fetchone() is not None
-    
-    def set_notes_path(self, article_id: str, path: str) -> bool:
-        """Set the notes file path for an article."""
-        with self.get_connection() as conn:
-            cursor = conn.execute("""
-                UPDATE articles 
-                SET notes_file_path = ?
-                WHERE id = ?
-            """, (path, article_id))
-            return cursor.rowcount > 0
-
-    def get_notes_path(self, article_id: str) -> Optional[str]:
-        """Get the notes file path for an article."""
-        with self.get_connection() as conn:
-            cursor = conn.execute("SELECT notes_file_path FROM articles WHERE id = ?", (article_id,))
-            row = cursor.fetchone()
-            return row['notes_file_path'] if row else None
     
     def add_article(self, article: arxiv.Result) -> bool:
         """Add article to database if it doesn't exist. Returns True if added."""
@@ -242,9 +229,6 @@ class ArticleDatabase:
         return added_count
     
     def get_articles_by_category(self, category: str) -> List[Dict]:
-        # write category to debug log file
-        with open("debug.log", "a") as f:
-            f.write(f"DEBUG: get_articles_by_category called with category {category}\n")
         """Get articles by category with status information."""
         with self.get_connection() as conn:
             cursor = conn.execute("""
@@ -320,24 +304,54 @@ class ArticleDatabase:
             
             return [dict(row) for row in cursor.fetchall()]
     
-    def get_articles_by_ids(self, article_ids: List[str]) -> List[Dict]:
-        """Get articles by list of IDs."""
-        if not article_ids:
-            return []
-        
-        placeholders = ",".join("?" * len(article_ids))
+    def get_unread_articles(self) -> List[Dict]:
+        """Get all unread articles."""
         with self.get_connection() as conn:
-            cursor = conn.execute(f"""
+            cursor = conn.execute("""
                 SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
                        CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
                 FROM articles a
                 LEFT JOIN article_status s ON a.id = s.article_id
                 LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
-                WHERE a.id IN ({placeholders})
+                WHERE s.is_viewed IS NULL OR s.is_viewed = 0
                 ORDER BY a.published_date DESC
-            """, article_ids)
+            """)
             
             return [dict(row) for row in cursor.fetchall()]
+    
+    def get_all_articles(self) -> List[Dict]:
+        """Get all articles from database, regardless of status."""        
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT a.*, 
+                       COALESCE(s.is_saved, 0) as is_saved, 
+                       COALESCE(s.is_viewed, 0) as is_viewed, 
+                       s.saved_at, s.viewed_at,
+                       CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
+                FROM articles a
+                LEFT JOIN article_status s ON a.id = s.article_id
+                LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
+                ORDER BY a.published_date DESC
+            """)
+            
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def get_articles_with_notes(self) -> List[Dict]:
+        """Get all articles that have notes."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
+                       CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
+                FROM articles a
+                LEFT JOIN article_status s ON a.id = s.article_id
+                LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
+                WHERE a.notes_file_path IS NOT NULL
+                ORDER BY a.published_date DESC
+            """)
+            
+            return [dict(row) for row in cursor.fetchall()]
+    
+    # Status management methods
     
     def mark_article_viewed(self, article_id: str) -> None:
         """Mark article as viewed."""
@@ -400,40 +414,7 @@ class ArticleDatabase:
             
             return cursor.rowcount > 0
     
-    def get_article_status(self, article_id: str) -> Dict:
-        """Get status information for an article."""
-        with self.get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT is_saved, is_viewed, saved_at, viewed_at
-                FROM article_status
-                WHERE article_id = ?
-            """, (article_id,))
-            
-            row = cursor.fetchone()
-            if row:
-                return dict(row)
-            else:
-                return {"is_saved": 0, "is_viewed": 0, "saved_at": None, "viewed_at": None}
-    
-    def update_category_fetch_info(self, category_code: str, category_name: str, article_count: int) -> None:
-        """Update information about when a category was last fetched."""
-        now = datetime.now().isoformat()
-        with self.get_connection() as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO fetched_categories 
-                (category_code, category_name, last_fetched, article_count)
-                VALUES (?, ?, ?, ?)
-            """, (category_code, category_name, now, article_count))
-    
-    def get_category_fetch_info(self, category_code: str) -> Optional[Dict]:
-        """Get information about when a category was last fetched."""
-        with self.get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT * FROM fetched_categories WHERE category_code = ?
-            """, (category_code,))
-            
-            row = cursor.fetchone()
-            return dict(row) if row else None
+    # Count methods
     
     def get_all_articles_count(self) -> int:
         """Get total number of articles in database."""
@@ -449,86 +430,42 @@ class ArticleDatabase:
             """)
             return cursor.fetchone()['count']
     
-    def migrate_from_text_files(self, saved_file: str, viewed_file: str) -> Dict[str, int]:
-        """Migrate existing data from text files."""
-        stats = {"saved_migrated": 0, "viewed_migrated": 0, "errors": 0}
-        
-        # Migrate saved articles
-        try:
-            with open(saved_file, "r") as f:
-                saved_ids = set(line.strip() for line in f if line.strip())
-            
-            for article_id in saved_ids:
-                try:
-                    if self.mark_article_saved(article_id):
-                        stats["saved_migrated"] += 1
-                except Exception:
-                    stats["errors"] += 1
-                    
-        except FileNotFoundError:
-            pass
-        
-        # Migrate viewed articles  
-        try:
-            with open(viewed_file, "r") as f:
-                viewed_urls = set(line.strip() for line in f if line.strip())
-            
-            for entry_url in viewed_urls:
-                try:
-                    # Extract article ID from URL
-                    if "abs/" in entry_url:
-                        article_id = entry_url.split("abs/")[-1]
-                        self.mark_article_viewed(article_id)
-                        stats["viewed_migrated"] += 1
-                except Exception:
-                    stats["errors"] += 1
-                    
-        except FileNotFoundError:
-            pass
-        
-        return stats
-
-    def update_citation_count(self, article_id: str, citation_count: int) -> bool:
-        """Update citation count for an article."""
+    def get_unread_count(self) -> int:
+        """Get count of all unread articles."""
         with self.get_connection() as conn:
-            now = datetime.now().isoformat()
             cursor = conn.execute("""
-                UPDATE articles 
-                SET citation_count = ?, citations_updated_at = ?
-                WHERE id = ?
-            """, (citation_count, now, article_id))
-            return cursor.rowcount > 0
-
-    def get_articles_needing_citation_update(self, days_old: int = 7) -> List[Dict]:
-        """Get articles that need citation count updates (haven't been updated in X days)."""
+                SELECT COUNT(*) as count
+                FROM articles a
+                LEFT JOIN article_status s ON a.id = s.article_id
+                WHERE s.is_viewed IS NULL OR s.is_viewed = 0
+            """)
+            return cursor.fetchone()['count']
+    
+    def get_unread_saved_count(self) -> int:
+        """Get count of unread saved articles."""
         with self.get_connection() as conn:
-            from datetime import datetime, timedelta
-            cutoff_date = (datetime.now() - timedelta(days=days_old)).isoformat()
-            
             cursor = conn.execute("""
-                SELECT id, title, entry_id
-                FROM articles 
-                WHERE citations_updated_at IS NULL 
-                   OR citations_updated_at < ?
-                ORDER BY published_date DESC
-            """, (cutoff_date,))
-            
-            return [dict(row) for row in cursor.fetchall()]
-
+                SELECT COUNT(*) as count
+                FROM articles a
+                INNER JOIN article_status s ON a.id = s.article_id
+                WHERE s.is_saved = 1 AND (s.is_viewed IS NULL OR s.is_viewed = 0)
+            """)
+            return cursor.fetchone()['count']
+    
+    def get_unread_count_with_notes(self) -> int:
+        """Get count of unread articles that have notes."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count
+                FROM articles a
+                LEFT JOIN article_status s ON a.id = s.article_id
+                WHERE a.notes_file_path IS NOT NULL 
+                AND (s.is_viewed IS NULL OR s.is_viewed = 0)
+            """)
+            return cursor.fetchone()['count']
+    
     def get_unread_count_by_category(self, category: str) -> int:
         """Get count of unread articles for a specific category."""
-        print(f"DEBUG: get_unread_count_by_category called with category={repr(category)}, type={type(category)}")
-        
-        # Ensure category is a string
-        if not isinstance(category, str):
-            print(f"ERROR: category parameter is not a string: {repr(category)}")
-            # Convert to string if it's a single-item list/tuple
-            if hasattr(category, '__iter__') and len(category) == 1:
-                category = str(category[0])
-                print(f"DEBUG: Converted to string: {repr(category)}")
-            else:
-                raise ValueError(f"Invalid category parameter: {repr(category)}")
-        
         with self.get_connection() as conn:
             cursor = conn.execute("""
                 SELECT COUNT(*) as count
@@ -593,18 +530,7 @@ class ArticleDatabase:
                 
             return cursor.fetchone()['count']
     
-    def get_unread_saved_count(self) -> int:
-        """Get count of unread saved articles."""
-        with self.get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT COUNT(*) as count
-                FROM articles a
-                INNER JOIN article_status s ON a.id = s.article_id
-                WHERE s.is_saved = 1 AND (s.is_viewed IS NULL OR s.is_viewed = 0)
-            """)
-            return cursor.fetchone()['count'] 
-
-    # Tag-related methods
+    # Tag management methods
     
     def add_tag(self, name: str) -> int:
         """Add a new tag if it doesn't exist. Returns tag ID."""
@@ -614,20 +540,12 @@ class ArticleDatabase:
                 cursor = conn.execute("""
                     INSERT INTO tags (name, created_at) VALUES (?, ?)
                 """, (name, now))
-                tag_id = cursor.lastrowid
-                print(f"DEBUG: Created new tag '{name}' with ID {tag_id}")
-                return tag_id
+                return cursor.lastrowid
             except sqlite3.IntegrityError:
                 # Tag already exists, get its ID
                 cursor = conn.execute("SELECT id FROM tags WHERE name = ?", (name,))
                 result = cursor.fetchone()
-                if result:
-                    tag_id = result['id']
-                    print(f"DEBUG: Found existing tag '{name}' with ID {tag_id}")
-                    return tag_id
-                else:
-                    print(f"DEBUG: ERROR - Tag '{name}' should exist but wasn't found")
-                    raise
+                return result['id'] if result else None
     
     def get_all_tags(self) -> List[Dict]:
         """Get all tags sorted by name."""
@@ -639,15 +557,11 @@ class ArticleDatabase:
                 GROUP BY t.id, t.name, t.created_at
                 ORDER BY t.name
             """)
-            results = [dict(row) for row in cursor.fetchall()]
-            print(f"DEBUG: get_all_tags() returned {len(results)} tags: {[r['name'] for r in results]}")
-            return results
+            return [dict(row) for row in cursor.fetchall()]
     
     def add_article_tag(self, article_id: str, tag_name: str) -> bool:
         """Associate a tag with an article. Returns True if added."""
-        print(f"DEBUG: add_article_tag called with article_id={article_id}, tag_name={tag_name}")
         tag_id = self.add_tag(tag_name)
-        print(f"DEBUG: Got tag_id {tag_id} for tag '{tag_name}'")
         now = datetime.now().isoformat()
         
         with self.get_connection() as conn:
@@ -656,11 +570,9 @@ class ArticleDatabase:
                     INSERT INTO article_tags (article_id, tag_id, created_at)
                     VALUES (?, ?, ?)
                 """, (article_id, tag_id, now))
-                print(f"DEBUG: Successfully linked article {article_id} to tag '{tag_name}' (ID: {tag_id})")
                 return True
-            except sqlite3.IntegrityError as e:
+            except sqlite3.IntegrityError:
                 # Relationship already exists
-                print(f"DEBUG: Article-tag relationship already exists: {e}")
                 return False
     
     def remove_article_tag(self, article_id: str, tag_name: str) -> bool:
@@ -684,9 +596,7 @@ class ArticleDatabase:
                 WHERE at.article_id = ?
                 ORDER BY t.name
             """, (article_id,))
-            tags = [row['name'] for row in cursor.fetchall()]
-            print(f"DEBUG: get_article_tags for {article_id}: {tags}")
-            return tags
+            return [row['name'] for row in cursor.fetchall()]
     
     def get_articles_by_tag(self, tag_name: str) -> List[Dict]:
         """Get articles with a specific tag."""
@@ -732,77 +642,103 @@ class ArticleDatabase:
                 SELECT 1 FROM article_tags WHERE article_id = ? LIMIT 1
             """, (article_id,))
             return cursor.fetchone() is not None
+    
+    # Notes management methods
+    
+    def set_notes_path(self, article_id: str, path: str) -> bool:
+        """Set the notes file path for an article."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                UPDATE articles 
+                SET notes_file_path = ?
+                WHERE id = ?
+            """, (path, article_id))
+            return cursor.rowcount > 0
 
-    def get_unread_articles(self) -> List[Dict]:
-        """Get all unread articles."""
+    def get_notes_path(self, article_id: str) -> Optional[str]:
+        """Get the notes file path for an article."""
         with self.get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
-                       CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
-                FROM articles a
-                LEFT JOIN article_status s ON a.id = s.article_id
-                LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
-                WHERE s.is_viewed IS NULL OR s.is_viewed = 0
-                ORDER BY a.published_date DESC
-            """)
-            
-            results = [dict(row) for row in cursor.fetchall()]
-            return results
+            cursor = conn.execute("SELECT notes_file_path FROM articles WHERE id = ?", (article_id,))
+            row = cursor.fetchone()
+            return row['notes_file_path'] if row else None
     
-    def get_unread_count(self) -> int:
-        """Get count of all unread articles."""
-        with self.get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT COUNT(*) as count
-                FROM articles a
-                LEFT JOIN article_status s ON a.id = s.article_id
-                WHERE s.is_viewed IS NULL OR s.is_viewed = 0
-            """)
-            return cursor.fetchone()['count']
+    # Category fetch tracking methods
     
-    def get_all_articles(self) -> List[Dict]:
-        """Get all articles from database, regardless of status."""        
+    def update_category_fetch_info(self, category_code: str, category_name: str, article_count: int) -> None:
+        """Update information about when a category was last fetched."""
+        now = datetime.now().isoformat()
         with self.get_connection() as conn:
-            # Simple query - just get all articles with basic status info
-            cursor = conn.execute("""
-                SELECT a.*, 
-                       COALESCE(s.is_saved, 0) as is_saved, 
-                       COALESCE(s.is_viewed, 0) as is_viewed, 
-                       s.saved_at, s.viewed_at,
-                       CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
-                FROM articles a
-                LEFT JOIN article_status s ON a.id = s.article_id
-                LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
-                ORDER BY a.published_date DESC
-            """)
-            
-            results = [dict(row) for row in cursor.fetchall()]
-            
-            return results
+            conn.execute("""
+                INSERT OR REPLACE INTO fetched_categories 
+                (category_code, category_name, last_fetched, article_count)
+                VALUES (?, ?, ?, ?)
+            """, (category_code, category_name, now, article_count))
     
-    def get_articles_with_notes(self) -> List[Dict]:
-        """Get all articles that have notes."""
+    def get_category_fetch_info(self, category_code: str) -> Optional[Dict]:
+        """Get information about when a category was last fetched."""
         with self.get_connection() as conn:
             cursor = conn.execute("""
-                SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
-                       CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
-                FROM articles a
-                LEFT JOIN article_status s ON a.id = s.article_id
-                LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
-                WHERE a.notes_file_path IS NOT NULL
-                ORDER BY a.published_date DESC
-            """)
+                SELECT * FROM fetched_categories WHERE category_code = ?
+            """, (category_code,))
             
-            return [dict(row) for row in cursor.fetchall()]
+            row = cursor.fetchone()
+            return dict(row) if row else None
     
-    def get_unread_count_with_notes(self) -> int:
-        """Get count of unread articles that have notes."""
-        with self.get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT COUNT(*) as count
-                FROM articles a
-                LEFT JOIN article_status s ON a.id = s.article_id
-                WHERE a.notes_file_path IS NOT NULL 
-                AND (s.is_viewed IS NULL OR s.is_viewed = 0)
-            """)
-            return cursor.fetchone()['count'] 
+    # Migration methods
+    
+    def migrate_from_text_files(self, saved_file: Optional[str] = None, viewed_file: Optional[str] = None) -> Dict[str, int]:
+        """Migrate existing data from text files."""
+        stats = {"saved_migrated": 0, "viewed_migrated": 0, "errors": 0}
+        
+        # Use default paths if not provided
+        if saved_file is None:
+            saved_file = "saved_articles.txt"
+        if viewed_file is None:
+            viewed_file = "viewed_articles.txt"
+        
+        # Check both current directory and user data directory
+        possible_locations = [
+            "",  # Current directory
+            self.user_dirs.base_dir  # User data directory
+        ]
+        
+        # Migrate saved articles
+        for location in possible_locations:
+            saved_path = os.path.join(location, saved_file) if location else saved_file
+            try:
+                with open(saved_path, "r") as f:
+                    saved_ids = set(line.strip() for line in f if line.strip())
+                
+                for article_id in saved_ids:
+                    try:
+                        if self.mark_article_saved(article_id):
+                            stats["saved_migrated"] += 1
+                    except Exception:
+                        stats["errors"] += 1
+                break  # Success, don't try other locations
+                        
+            except FileNotFoundError:
+                continue  # Try next location
+        
+        # Migrate viewed articles  
+        for location in possible_locations:
+            viewed_path = os.path.join(location, viewed_file) if location else viewed_file
+            try:
+                with open(viewed_path, "r") as f:
+                    viewed_urls = set(line.strip() for line in f if line.strip())
+                
+                for entry_url in viewed_urls:
+                    try:
+                        # Extract article ID from URL
+                        if "abs/" in entry_url:
+                            article_id = entry_url.split("abs/")[-1]
+                            self.mark_article_viewed(article_id)
+                            stats["viewed_migrated"] += 1
+                    except Exception:
+                        stats["errors"] += 1
+                break  # Success, don't try other locations
+                        
+            except FileNotFoundError:
+                continue  # Try next location
+        
+        return stats

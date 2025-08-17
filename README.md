@@ -1,5 +1,13 @@
 # ArTui
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Commits](https://img.shields.io/badge/commits-15-green.svg)](#)
+[![Built with Textual](https://img.shields.io/badge/built%20with-Textual-purple.svg)](https://github.com/Textualize/textual)
+[![arXiv](https://img.shields.io/badge/data%20source-arXiv-red.svg)](https://arxiv.org/)
+[![INSPIRE-HEP](https://img.shields.io/badge/data%20source-INSPIRE--HEP-blue.svg)](https://inspirehep.net/)
+
+
 A Terminal User Interface (TUI) application for browsing, searching, and managing arXiv research papers. Built with Python and Textual, featuring a persistent SQLite database. This tool was built with the help of AI to test AI capabilities and to build something useful for myself. The code is not pretty and I simply wanted to create a usable tool for myself.
 
 **The main goal of the tool is to stay up to date with recent publications in your field**
@@ -50,23 +58,73 @@ This tool is not associated with arXiv and we thank arXiv for use of its open ac
 1. **Clone the repository**:
 ```bash
 git clone <repository-url>
+cd arxivreader
 ```
 
-2. **Create a virtual environment** (recommended):
+2. **Install locally with pip**:
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+# Install in development mode (recommended for local development)
+pip install -e .
+
+# Or install normally
+pip install .
 ```
 
-3. **Install dependencies**:
+3. **Run the application**:
 ```bash
-pip install -r requirements.txt
+artui
 ```
-4. After first open
-Press the 'r' button to refresh the database
+
+4. **First time setup**:
+After opening the application for the first time, press the 'r' button to refresh and populate the database with recent articles.
+
 ## Configuration
 
-Create or edit `arxiv_config.yaml` to configure categories and filters:
+### User Data Directory
+
+ArTui stores all user data in a centralized location for better organization and portability:
+
+**Default Location**: `~/.artui/`
+
+**Directory Structure**:
+```
+~/.artui/
+├── config.yaml          # Configuration file
+├── arxiv_articles.db     # SQLite database
+├── articles/             # Downloaded PDF files
+└── notes/               # Article notes (markdown files)
+```
+
+### Custom User Data Directory
+
+You can customize the user data directory location in several ways:
+
+1. **Environment Variable**:
+```bash
+export ARTUI_DATA_DIR="/path/to/custom/directory"
+artui
+```
+
+2. **Command Line Parameter**:
+```bash
+artui --user-dir "/path/to/custom/directory"
+```
+
+### User Directory Management
+
+View user directory information:
+```bash
+artui userdir info
+```
+
+Migrate existing data from current directory:
+```bash
+artui userdir migrate
+```
+
+### Configuration File
+
+Create or edit `config.yaml` in your user data directory to configure categories and filters:
 
 ```yaml
 categories:
@@ -100,7 +158,7 @@ filters:
 ### Running the Application
 
 ```bash
-python main.py
+artui
 ```
 
 The application will:
@@ -138,15 +196,11 @@ In the article list, the first column shows status:
 - `t` - Article has tags
 - `n` - Article has note
 
-### Database Management
+## License
 
-```bash
-# Reset database (delete arxiv_articles.db)
-rm arxiv_articles.db
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-# Backup database
-cp arxiv_articles.db backup_$(date +%Y%m%d).db
-```
+Copyright 2025 Florian Jonas
 
 ## Support
 

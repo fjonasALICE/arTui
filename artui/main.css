@@ -1,0 +1,336 @@
+ArxivReader {
+    layout: vertical;
+}
+
+#header_status {
+    height: 1;
+    width: 100%;
+    content-align: right middle;
+    background: $background;
+    padding: 0 1;
+    color: $primary;
+    text-align: right;
+    margin-bottom: 0;
+}
+
+#main_app_container {
+    layout: horizontal;
+    height: 1fr;
+}
+
+#left_pane {
+    width: 30;
+    height: 100%;
+    border-right: solid $primary;
+    overflow-y: auto;
+    padding: 1;
+}
+
+.pane_title {
+    content-align: center middle;
+    width: 100%;
+    margin: 1 0;
+    text-style: bold;
+}
+
+#right_pane {
+    layout: vertical;
+    width: 1fr;
+    height: 100%;
+    padding: 0 1;
+}
+
+#search_container {
+    layout: horizontal;
+    height: 3;
+    margin: 1 0;
+}
+
+#search_input {
+    width: 1fr;
+    margin-bottom: 1;
+}
+
+#global_search_checkbox {
+    width: auto;
+    margin-left: 1;
+}
+
+#main_container {
+    layout: horizontal;
+    height: 1fr;
+}
+
+#results_container {
+    width: 2fr;
+    height: 100%;
+    layout: vertical;
+    padding: 0;
+    margin: 0;
+}
+
+#results_title {
+    content-align: left top;
+    width: 100%;
+    height: auto;
+    text-style: bold;
+    color: $primary;
+    margin: 0;
+    padding: 0;
+}
+
+#results_table {
+    width: 1fr;
+    height: 1fr;
+    border: solid $primary;
+    background: $background;
+}
+
+#abstract_container {
+    width: 1fr;
+    height: 100%;
+    layout: vertical;
+    margin-left: 1;
+    padding: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    margin-right: 0;
+}
+
+#abstract_title {
+    content-align: left top;
+    width: 100%;
+    height: auto;
+    text-style: bold;
+    color: $primary;
+    margin: 0;
+    padding: 0;
+}
+
+#abstract_view {
+    width: 1fr;
+    height: 1fr;
+    border: solid $primary;
+    padding: 1;
+    overflow-y: auto;
+}
+
+SelectionPopupScreen {
+    align: center middle;
+}
+
+#selection_popup_dialog {
+    width: 50;
+    height: auto;
+    padding: 2;
+    border: solid $primary;
+    background: $surface;
+    border-title-color: $accent;
+    border-title-background: $surface;
+}
+
+#selection_popup_title {
+    content-align: center middle;
+    width: 100%;
+    margin-bottom: 2;
+    text-style: bold;
+    color: $accent;
+}
+
+#selection_popup_select {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+BibtexPopupScreen {
+    align: center middle;
+}
+
+#bibtex_popup_dialog {
+    width: 80%;
+    max-width: 80;
+    height: 70%;
+    max-height: 35;
+    border: thick $primary;
+    background: $surface;
+    padding: 1;
+}
+
+#bibtex_popup_title {
+    content-align: center middle;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#bibtex_article_title,
+#citation_count,
+#inspire_link {
+    margin-bottom: 1;
+    height: auto;
+}
+
+#bibtex_label {
+    margin-bottom: 0;
+    margin-top: 1;
+    text-style: bold;
+    color: $primary;
+}
+
+#bibtex_scroll {
+    border: round $primary;
+    padding: 1;
+    height: 1fr;
+    max-height: 20;
+}
+
+#bibtex_content {
+    width: 100%;
+    height: auto;
+}
+
+#bibtex_buttons {
+    align: center middle;
+    width: 100%;
+    margin-top: 1;
+    height: auto;
+}
+
+#bibtex_copy_button {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#bibtex_close_button {
+    width: 1fr;
+}
+
+TagPopupScreen {
+    align: center middle;
+}
+
+#tag_popup_dialog {
+    width: 75;
+    height: 85%;
+    padding: 2;
+    border: solid $primary;
+    background: $surface;
+    layout: vertical;
+}
+
+#tag_popup_title {
+    content-align: center middle;
+    width: 100%;
+    margin-bottom: 2;
+    text-style: bold;
+    color: $accent;
+    padding: 1;
+}
+
+#tag_popup_article {
+    width: 100%;
+    margin-bottom: 2;
+    padding: 1;
+    text-style: italic;
+    color: $text-muted;
+    background: $background;
+}
+
+#new_tag_container {
+    layout: horizontal;
+    width: 100%;
+    margin-bottom: 2;
+    height: 3;
+}
+
+#new_tag_input {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#add_tag_button {
+    width: auto;
+    padding: 0 2;
+}
+
+#tags_scroll {
+    width: 100%;
+    height: 1fr;
+    border: solid $accent;
+    margin-bottom: 2;
+    padding: 1;
+    background: $background;
+}
+
+#no_tags_message {
+    content-align: center middle;
+    width: 100%;
+    text-style: italic;
+    color: $text-muted;
+    padding: 2;
+}
+
+#tag_buttons {
+    layout: horizontal;
+    width: 100%;
+    height: 3;
+}
+
+#save_tags_button {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#cancel_tags_button {
+    width: 1fr;
+}
+
+NotesPopupScreen {
+    align: center middle;
+}
+
+#notes_popup_dialog {
+    width: 85%;
+    height: 85%;
+    padding: 2;
+    border: solid $primary;
+    background: $surface;
+    layout: vertical;
+}
+
+#notes_popup_title {
+    content-align: center middle;
+    width: 100%;
+    margin-bottom: 2;
+    text-style: bold;
+    color: $accent;
+    padding: 1;
+}
+
+#notes_text_area {
+    width: 100%;
+    height: 1fr;
+    margin-bottom: 2;
+    border: solid $accent;
+}
+
+#notes_buttons {
+    layout: horizontal;
+    width: 100%;
+    height: 3;
+}
+
+#notes_save_button {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#notes_close_button {
+    width: 1fr;
+}
+
+#tags_container,
+#filters_container,
+#categories_container {
+    padding-top: 0;
+    padding-bottom: 1;
+}

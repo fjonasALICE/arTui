@@ -109,7 +109,8 @@ class ArxivReaderApp(App):
                         yield DataTable(id="results_table")
                     with Vertical(id="abstract_container"):
                         yield Static("Article View", id="abstract_title", classes="pane_title")
-                        yield Static("No article selected", id="abstract_view")
+                        with VerticalScroll(id="abstract_view"):
+                            yield Static("No article selected", id="abstract_content")
         yield Footer()
 
     def _create_left_panel(self):
@@ -291,7 +292,7 @@ class ArxivReaderApp(App):
     def load_articles(self) -> None:
         """Prepare for fetching articles and trigger the worker."""
         table = self.query_one("#results_table", DataTable)
-        abstract_view = self.query_one("#abstract_view", Static)
+        abstract_view = self.query_one("#abstract_content", Static)
         table.clear()
         abstract_view.update("No article selected")
 
@@ -354,7 +355,7 @@ class ArxivReaderApp(App):
     @work(exclusive=True, thread=True)
     def fetch_articles_from_arxiv(self) -> None:
         """Worker to fetch articles directly from arXiv API for global search."""
-        abstract_view = self.query_one("#abstract_view", Static)
+        abstract_view = self.query_one("#abstract_content", Static)
 
         try:
             # Use the fetcher to search arXiv
@@ -380,7 +381,7 @@ class ArxivReaderApp(App):
     @work(exclusive=True, thread=True) 
     def fetch_articles_from_db(self) -> None:
         """Worker to fetch and display articles from database."""
-        abstract_view = self.query_one("#abstract_view", Static)
+        abstract_view = self.query_one("#abstract_content", Static)
 
         try:
             db_results = self._get_db_results()
@@ -561,7 +562,7 @@ class ArxivReaderApp(App):
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         """Handle row highlighting in the DataTable."""
-        abstract_view = self.query_one("#abstract_view", Static)
+        abstract_view = self.query_one("#abstract_content", Static)
         table = self.query_one("#results_table", DataTable)
 
         if not self.search_results:
@@ -999,6 +1000,8 @@ class ArxivReaderApp(App):
                 title="Inspire-HEP",
                 timeout=5
             )
+            references = literature_entry.get_references_ids()
+            print(references)
             # Get bibtex entry
             bibtex_url = f"https://inspirehep.net/api/literature?q=arxiv:{base_article_id}&format=bibtex"
             bibtex_response = requests.get(bibtex_url, timeout=10)
@@ -1025,7 +1028,8 @@ class ArxivReaderApp(App):
                     bibtex_content,
                     n_citations,
                     inspire_link,
-                    article.title
+                    article.title,
+                    references
                 )
             )
 

@@ -35,18 +35,20 @@ class SelectionPopupScreen(ModalScreen):
 class BibtexPopupScreen(ModalScreen):
     """Screen to display bibtex citation information."""
 
-    def __init__(self, bibtex_content: str, n_citations: int, inspire_link: str, article_title: str, *args, **kwargs):
+    def __init__(self, bibtex_content: str, n_citations: int, inspire_link: str, article_title: str, references: List[str], *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.bibtex_content = bibtex_content
         self.n_citations = n_citations
         self.inspire_link = inspire_link
         self.article_title = article_title
+        self.references = references
 
     def compose(self):
         yield Vertical(
             Static("[bold $primary]Inspire-HEP Information[/]", id="bibtex_popup_title"),
             Static(f"Article: {self.article_title[:60]}{'...' if len(self.article_title) > 60 else ''}", id="bibtex_article_title"),
             Static(f"Citations: {self.n_citations}", id="citation_count"),
+            Static(f"References: {len(self.references)} reference(s)", id="references"),
             Static(f"Inspire Link: [@click=\"app.open_link('{self.inspire_link}')\"]{self.inspire_link}[/]", id="inspire_link"),
             Static("[bold $primary]BibTeX[/]", id="bibtex_label"),
             VerticalScroll(

@@ -111,8 +111,10 @@ ArxivReader {
     width: 1fr;
     height: 1fr;
     border: solid $primary;
+}
+
+#abstract_content {
     padding: 1;
-    overflow-y: auto;
 }
 
 SelectionPopupScreen {
@@ -164,6 +166,7 @@ BibtexPopupScreen {
 
 #bibtex_article_title,
 #citation_count,
+#references,
 #inspire_link {
     margin-bottom: 1;
     height: auto;
@@ -194,6 +197,8 @@ BibtexPopupScreen {
     margin-top: 1;
     height: auto;
 }
+
+
 
 #bibtex_copy_button {
     width: 1fr;

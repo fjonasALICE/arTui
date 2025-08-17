@@ -111,8 +111,10 @@ ArxivReader {
     width: 1fr;
     height: 1fr;
     border: solid $primary;
+}
+
+#abstract_content {
     padding: 1;
-    overflow-y: auto;
 }
 
 SelectionPopupScreen {
@@ -142,6 +144,8 @@ SelectionPopupScreen {
     margin-bottom: 1;
 }
 
+
+
 BibtexPopupScreen {
     align: center middle;
 }
@@ -164,8 +168,35 @@ BibtexPopupScreen {
 
 #bibtex_article_title,
 #citation_count,
+#references,
 #inspire_link {
     margin-bottom: 1;
+    height: auto;
+}
+
+#bibtex_label {
+    margin-bottom: 0;
+    margin-top: 1;
+    text-style: bold;
+    color: $primary;
+}
+
+#bibtex_scroll {
+    border: round $primary;
+    padding: 1;
+    height: 1fr;
+    max-height: 20;
+}
+
+#bibtex_content {
+    width: 100%;
+    height: auto;
+}
+
+#bibtex_buttons {
+    align: center middle;
+    width: 100%;
+    margin-top: 1;
     height: auto;
 }
 

@@ -30,7 +30,7 @@ classifiers = [
 ]
 keywords = ["arxiv", "tui", "research", "papers", "terminal", "textual"]
 dependencies = [
-    "textual>=0.41.0",
+    "textual[syntax]>=0.41.0",
     "arxiv>=2.0.0",
     "pyyaml>=6.0",
     "requests>=2.25.0",

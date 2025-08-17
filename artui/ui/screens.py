@@ -209,7 +209,7 @@ class NotesPopupScreen(ModalScreen):
 
         yield Vertical(
             Static(f"Notes for: {self.article_title[:60]}{'...' if len(self.article_title) > 60 else ''}", id="notes_popup_title"),
-            TextArea(self.original_content, id="notes_text_area"),
+            TextArea(self.original_content, id="notes_text_area", language="markdown", theme="monokai"),
             Horizontal(
                 Button("Save", variant="primary", id="notes_save_button"),
                 Button("Close", id="notes_close_button"),

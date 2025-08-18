@@ -1,4 +1,4 @@
-# ArTui
+# ArTui - Stay up to date with recent ArXiv submissions!
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -8,28 +8,27 @@
 [![INSPIRE-HEP](https://img.shields.io/badge/data%20source-INSPIRE--HEP-blue.svg)](https://inspirehep.net/)
 
 
-A Terminal User Interface (TUI) application for browsing, searching, and managing arXiv research papers. Built with Python and Textual, featuring a persistent SQLite database. This tool was built with the help of AI to test AI capabilities and to build something useful for myself. The code is not pretty and I simply wanted to create a usable tool for myself.
+A Terminal User Interface (TUI) application to stay up to date with recent arXiv submissions. Built with Python and Textual, featuring a persistent SQLite database. This tool was built with the help of AI to test AI capabilities and to build something useful for myself. The code is not pretty and I simply wanted to create a usable tool for myself.
 
 **The main goal of the tool is to stay up to date with recent publications in your field**
 
 # Disclaimer
-This tool is not associated with arXiv and we thank arXiv for use of its open access interoperability. We also thank INSPIRE for provisding their API free of charge for educational and informational use. The tool has been developed with the help of a mix of Claude Sonnet 4 and Gemini 2.5 Pro.
+This tool is not associated with arXiv and we thank arXiv for use of its open access interoperability. We also thank INSPIRE for providing their API free of charge for educational and informational use. The tool has been developed with the help of a mix of Claude Sonnet 4 and Gemini 2.5 Pro.
 ## Features
+Stay up with recent publications in your field. New arXiv articles get fetched automatically according to predefined categories, and can be further filtered using custom filters. Read something you like? Save it for future reading right in your local PDF reader!
 
-- **🗃️ Persistent Database**: All articles stored locally in SQLite for fast offline access
-- **🚀 Smart Fetching**: Automatic background fetching of recent articles (last 7 days)
+- **🚀 Smart Fetching**: Automatic background fetching of recent arXiv articles (last 7 days)
 - **🔍 Advanced Filtering**: Configure custom filters with category and text-based criteria
+- **📖 Reading Status**: Track viewed articles automatically
+- **🗃️ Persistent Database**: All articles stored locally in SQLite for fast offline access
 - **📁 Category Management**: Organize articles by arXiv categories (cs.AI, hep-th, etc.)
 - **🏷️ Tag Management**: Add custom tags to articles and filter by tags
 - **📝 Notes Management**: Create and edit markdown notes for articles
 - **📚 BibTeX Citations**: Fetch and view BibTeX citations from Inspire-HEP
 - **💾 Save System**: Save and organize your favorite articles
-- **📖 Reading Status**: Track viewed articles automatically
 - **📱 Modern TUI**: Beautiful, responsive terminal interface with mouse support
 - **📄 PDF Integration**: Download and open PDFs directly from the application
 - **🔎 Full-Text Search**: Search across titles, authors, and abstracts
-
-- **⚡ Fast Performance**: Local database ensures instant search and browsing
 
 ## Screenshots
 

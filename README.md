@@ -15,7 +15,7 @@ A Terminal User Interface (TUI) application to stay up to date with recent arXiv
 # Disclaimer
 This tool is not associated with arXiv and we thank arXiv for use of its open access interoperability. We also thank INSPIRE for providing their API free of charge for educational and informational use. The tool has been developed with the help of a mix of Claude Sonnet 4 and Gemini 2.5 Pro.
 ## Features
-Stay up with recent publications in your field. New arXiv articles get fetched automatically according to predefined categories, and can be further filtered using custom filters. Read something you like? Save it for future reading right in your local PDF reader!
+Stay up to date with recent publications in your field. New arXiv articles get fetched automatically according to predefined categories, and can be further filtered using custom filters. Read something you like? Save it for future reading right in your local PDF reader!
 
 - **🚀 Smart Fetching**: Automatic background fetching of recent arXiv articles (last 7 days)
 - **🔍 Advanced Filtering**: Configure custom filters with category and text-based criteria

@@ -4,7 +4,8 @@ from .screens import (
     SelectionPopupScreen,
     BibtexPopupScreen, 
     TagPopupScreen,
-    NotesPopupScreen
+    NotesPopupScreen,
+    AdvancedSearchPopupScreen
 )
 from .widgets import ArticleTableWidget
 from .utils import MockArticle
@@ -14,6 +15,7 @@ __all__ = [
     "BibtexPopupScreen", 
     "TagPopupScreen",
     "NotesPopupScreen",
+    "AdvancedSearchPopupScreen",
     "ArticleTableWidget",
     "MockArticle"
 ]

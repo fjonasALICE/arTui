@@ -56,6 +56,12 @@ ArxivReader {
     margin-left: 1;
 }
 
+#advanced_search_button {
+    width: auto;
+    margin-left: 1;
+    padding: 0 2;
+}
+
 #main_container {
     layout: horizontal;
     height: 1fr;
@@ -344,4 +350,85 @@ NotesPopupScreen {
 #categories_container {
     padding-top: 0;
     padding-bottom: 1;
+}
+
+AdvancedSearchPopupScreen {
+    align: center middle;
+}
+
+#advanced_search_dialog {
+    width: 70;
+    height: auto;
+    max-height: 85%;
+    padding: 2;
+    border: solid $primary;
+    background: $surface;
+    layout: vertical;
+}
+
+#advanced_search_title {
+    content-align: center middle;
+    width: 100%;
+    margin-bottom: 2;
+    text-style: bold;
+    color: $accent;
+    padding: 1;
+}
+
+#search_query_container,
+#results_count_container,
+#sort_order_container {
+    layout: horizontal;
+    width: 100%;
+    margin-bottom: 1;
+    height: 3;
+}
+
+.label {
+    width: 15;
+    content-align: right middle;
+    margin-right: 2;
+    text-style: bold;
+    color: $text;
+}
+
+#advanced_search_input {
+    width: 1fr;
+}
+
+#results_count_select,
+#sort_order_select {
+    width: 1fr;
+}
+
+.section_title {
+    width: 100%;
+    margin: 2 0 1 0;
+    text-style: bold;
+    color: $primary;
+    content-align: left middle;
+}
+
+#search_fields_container {
+    width: 100%;
+    height: 12;
+    border: solid $accent;
+    margin-bottom: 2;
+    padding: 1;
+    background: $background;
+}
+
+#advanced_search_buttons {
+    layout: horizontal;
+    width: 100%;
+    height: 3;
+}
+
+#advanced_search_buttons #advanced_search_button {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#advanced_cancel_button {
+    width: 1fr;
 }

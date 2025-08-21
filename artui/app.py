@@ -28,8 +28,9 @@ from .fetcher import ArticleFetcher
 from .user_dirs import get_user_dirs
 from .ui.screens import (
     SelectionPopupScreen, BibtexPopupScreen, 
-    TagPopupScreen, NotesPopupScreen
+    TagPopupScreen, NotesPopupScreen, AdvancedSearchPopupScreen
 )
+from .ui.widgets import ArticleTableWidget
 from .ui.utils import convert_db_results_to_articles, debug_log
 
 
@@ -81,6 +82,7 @@ class ArxivReaderApp(App):
         self.current_results_from_global = False
         self.current_results_type = None  # 'references', 'citations', or None
         self.last_refresh_time = None
+        self.advanced_search_params = None
         
         # Set default theme
         self.dark = True
@@ -104,10 +106,11 @@ class ArxivReaderApp(App):
                 with Horizontal(id="search_container"):
                     yield Input(placeholder="Enter query...", id="search_input")
                     yield Checkbox("Web Search", id="global_search_checkbox")
+                    yield Button("Advanced", id="advanced_search_button")
                 with Horizontal(id="main_container"):
                     with Vertical(id="results_container"):
                         yield Static("Articles", id="results_title", classes="pane_title")
-                        yield DataTable(id="results_table")
+                        yield ArticleTableWidget(id="results_table")
                     with Vertical(id="abstract_container"):
                         yield Static("Article View", id="abstract_title", classes="pane_title")
                         with VerticalScroll(id="abstract_view"):
@@ -184,13 +187,7 @@ class ArxivReaderApp(App):
 
     def on_mount(self) -> None:
         """Call after the app is mounted."""
-        table = self.query_one("#results_table", DataTable)
-        table.cursor_type = "row"
-        table.add_column("S", width=3)
-        table.add_column("Title")
-        table.add_column("Authors", width=18)
-        table.add_column("Published")
-        table.add_column("Categories", width=20)
+        table = self.query_one("#results_table", ArticleTableWidget)
 
         # Automatically select "Unread" as the default view
         self.current_selection = "unread_articles_filter"
@@ -290,9 +287,14 @@ class ArxivReaderApp(App):
             if self.current_query:
                 self.load_articles()
 
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button presses."""
+        if event.button.id == "advanced_search_button":
+            self.action_show_advanced_search()
+
     def load_articles(self) -> None:
         """Prepare for fetching articles and trigger the worker."""
-        table = self.query_one("#results_table", DataTable)
+        table = self.query_one("#results_table", ArticleTableWidget)
         abstract_view = self.query_one("#abstract_content", Static)
         table.clear()
         abstract_view.update("No article selected")
@@ -381,12 +383,44 @@ class ArxivReaderApp(App):
         self.call_from_thread(self.query_one("#results_table").focus)
     
     @work(exclusive=True, thread=True)
+    def fetch_articles_from_arxiv_advanced(self, search_params: Dict[str, Any]) -> None:
+        """Worker to fetch articles from arXiv using advanced search parameters."""
+        abstract_view = self.query_one("#abstract_content", Static)
+
+        try:
+            # Use the fetcher to search arXiv with advanced parameters
+            arxiv_results = self.fetcher.search_arxiv(
+                query=search_params["query"],
+                max_results=search_params["max_results"],
+                sort_by=search_params["sort_by"]
+            )
+            
+            # Add status information (not saved, not viewed since from global search)
+            self.search_results = []
+            for result in arxiv_results:
+                result.is_saved = False
+                result.is_viewed = False
+                self.search_results.append(result)
+                
+        except Exception as e:
+            self.call_from_thread(
+                abstract_view.update,
+                f"[bold red]Error fetching articles from arXiv:[/bold red]\n{e}",
+            )
+            self.search_results = []
+
+        # Clear the table before populating with new results
+        self.call_from_thread(self.query_one("#results_table").clear)
+        self.call_from_thread(self._populate_table)
+        self.call_from_thread(self.query_one("#results_table").focus)
+    
+    @work(exclusive=True, thread=True)
     def fetch_articles_by_references(self, inspire_ids: List[int]) -> None:
         """Worker to fetch articles by INSPIRE-HEP reference IDs."""
         from .ui.utils import get_arxiv_ids_from_inspire_ids
         
         # Get table and abstract view references
-        table = self.query_one("#results_table", DataTable)
+        table = self.query_one("#results_table", ArticleTableWidget)
         abstract_view = self.query_one("#abstract_content", Static)
 
         try:
@@ -450,7 +484,7 @@ class ArxivReaderApp(App):
         from .ui.utils import get_citing_articles_from_inspire_id
         
         # Get table and abstract view references
-        table = self.query_one("#results_table", DataTable)
+        table = self.query_one("#results_table", ArticleTableWidget)
         abstract_view = self.query_one("#abstract_content", Static)
 
         try:
@@ -638,84 +672,42 @@ class ArxivReaderApp(App):
 
     def _populate_table(self):
         """Populate the DataTable with search results."""
-        table = self.query_one("#results_table", DataTable)
-        for result in self.search_results:
-            authors = ", ".join(author.name for author in result.authors)
-            title = result.title
-
-            if len(title) > 60:
-                title = title[:57] + "..."
-
-            if len(authors) > 18:
-                authors = authors[:15] + "..."
-
-            # Format categories
-            categories = ", ".join(result.categories)
-            if len(categories) > 20:
-                categories = categories[:17] + "..."
-
-            # Build status string
-            status = self._build_status_string(result)
-
-            table.add_row(
-                status, title, authors, result.published.strftime("%Y-%m-%d"), categories
-            )
+        table = self.query_one("#results_table", ArticleTableWidget)
+        table.populate_articles(self.search_results, self.current_results_from_global)
         
         # Refresh left panel counts after populating table
         self.refresh_left_panel_counts()
 
-    def _build_status_string(self, result) -> str:
-        """Build status string for article row."""
-        status_parts = []
-        
-        # For global search results, show nothing instead of read/unread status
-        if self.current_results_from_global:
-            status_parts.append(" ")
-        else:
-            # Use database status information
-            if hasattr(result, 'is_saved') and result.is_saved:
-                status_parts.append("[red]s[/red]")
-            elif hasattr(result, 'is_viewed') and result.is_viewed:
-                status_parts.append(" ")
-            else:
-                status_parts.append("●")
-        
-        # Add tag indicator (only for local database results)
-        if not self.current_results_from_global and hasattr(result, 'has_tags') and result.has_tags:
-            status_parts.append("[blue]t[/blue]")
-        
-        # Add note indicator (only for local database results)
-        if not self.current_results_from_global and hasattr(result, 'has_note') and result.has_note:
-            status_parts.append("[green]n[/green]")
-        
-        # Join status parts or use first one if only one
-        if len(status_parts) > 1:
-            return "".join(status_parts)
-        else:
-            return status_parts[0] if status_parts else " "
+
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         """Handle row highlighting in the DataTable."""
         abstract_view = self.query_one("#abstract_content", Static)
-        table = self.query_one("#results_table", DataTable)
+        table = self.query_one("#results_table", ArticleTableWidget)
 
         if not self.search_results:
             return
 
-        if event.cursor_row is not None and event.cursor_row < len(self.search_results):
-            selected_article = self.search_results[event.cursor_row]
+        if event.cursor_row is not None:
+            # Use the table's method to get the correct article after sorting
+            selected_article = table.get_article_at_row(event.cursor_row)
+            
+            if selected_article is None:
+                return
 
             # Mark as viewed in database if not saved and not already viewed
             if (not (hasattr(selected_article, 'is_saved') and selected_article.is_saved) and
                 not (hasattr(selected_article, 'is_viewed') and selected_article.is_viewed)):
                 self.db.mark_article_viewed(selected_article.get_short_id())
                 selected_article.is_viewed = True
-                table.update_cell_at(Coordinate(event.cursor_row, 0), " ")
+                
+                # Update the status in the table using the correct article
+                status = table._build_status_string(selected_article, table.current_is_global_search)
+                table.update_cell_at(Coordinate(event.cursor_row, 0), status)
                 self.refresh_left_panel_counts()
 
             # Display article information
             self._display_article_info(selected_article, abstract_view)
-            self.refresh_left_panel_counts()
         else:
             abstract_view.update("No article selected")
 
@@ -758,10 +750,12 @@ class ArxivReaderApp(App):
 
     def action_save_article(self) -> None:
         """Toggle save/unsave for the currently selected article."""
-        table = self.query_one("#results_table", DataTable)
+        table = self.query_one("#results_table", ArticleTableWidget)
         cursor_row = table.cursor_row
-        if cursor_row is not None and 0 <= cursor_row < len(self.search_results):
-            selected_article = self.search_results[cursor_row]
+        if cursor_row is not None:
+            selected_article = table.get_article_at_row(cursor_row)
+            if selected_article is None:
+                return
             article_id = selected_article.get_short_id()
 
             # Check if article is currently saved
@@ -799,15 +793,18 @@ class ArxivReaderApp(App):
                     self.db.mark_article_viewed(article_id)
                     selected_article.is_viewed = True
 
-                    table.update_cell_at(Coordinate(cursor_row, 0), "[red]s[/red]")
+                    status = table._build_status_string(selected_article, table.current_is_global_search)
+                    table.update_cell_at(Coordinate(cursor_row, 0), status)
                     self.refresh_left_panel_counts()
 
     def action_mark_unread(self) -> None:
         """Mark the currently selected article as unread."""
-        table = self.query_one("#results_table", DataTable)
+        table = self.query_one("#results_table", ArticleTableWidget)
         cursor_row = table.cursor_row
-        if cursor_row is not None and 0 <= cursor_row < len(self.search_results):
-            selected_article = self.search_results[cursor_row]
+        if cursor_row is not None:
+            selected_article = table.get_article_at_row(cursor_row)
+            if selected_article is None:
+                return
             article_id = selected_article.get_short_id()
 
             # Only mark as unread if it's currently viewed and not saved
@@ -817,7 +814,8 @@ class ArxivReaderApp(App):
                     selected_article.is_viewed = False
                     self.notify(f"Marked {article_id} as unread")
                     
-                    table.update_cell_at(Coordinate(cursor_row, 0), "●")
+                    status = table._build_status_string(selected_article, table.current_is_global_search)
+                    table.update_cell_at(Coordinate(cursor_row, 0), status)
                     self.refresh_left_panel_counts()
             elif hasattr(selected_article, 'is_saved') and selected_article.is_saved:
                 self.notify(f"Cannot mark saved article as unread")
@@ -830,7 +828,7 @@ class ArxivReaderApp(App):
             self.notify("No articles to mark as read", severity="warning")
             return
 
-        table = self.query_one("#results_table", DataTable)
+        table = self.query_one("#results_table", ArticleTableWidget)
         marked_count = 0
         skipped_count = 0
 
@@ -871,18 +869,22 @@ class ArxivReaderApp(App):
 
     def action_download_and_open_pdf(self) -> None:
         """Download the PDF for the selected article and open it."""
-        table = self.query_one("#results_table", DataTable)
+        table = self.query_one("#results_table", ArticleTableWidget)
         cursor_row = table.cursor_row
-        if cursor_row is not None and 0 <= cursor_row < len(self.search_results):
-            selected_article = self.search_results[cursor_row]
+        if cursor_row is not None:
+            selected_article = table.get_article_at_row(cursor_row)
+            if selected_article is None:
+                return
             self.download_and_open_worker(selected_article)
 
     def action_open_arxiv_link(self) -> None:
         """Open the arXiv link for the selected article in browser."""
-        table = self.query_one("#results_table", DataTable)
+        table = self.query_one("#results_table", ArticleTableWidget)
         cursor_row = table.cursor_row
-        if cursor_row is not None and 0 <= cursor_row < len(self.search_results):
-            selected_article = self.search_results[cursor_row]
+        if cursor_row is not None:
+            selected_article = table.get_article_at_row(cursor_row)
+            if selected_article is None:
+                return
             article_id = selected_article.get_short_id()
             arxiv_url = f"https://arxiv.org/abs/{article_id}"
             webbrowser.open(arxiv_url)
@@ -931,6 +933,10 @@ class ArxivReaderApp(App):
         # Focus the search input
         self.query_one("#search_input", Input).focus()
 
+    def action_show_advanced_search(self) -> None:
+        """Show the advanced search popup."""
+        self.push_screen(AdvancedSearchPopupScreen(), self.advanced_search_callback)
+
     def action_show_selection_popup(self) -> None:
         """Show a popup to select a view (category, filter, or saved)."""
         config = self.config_manager.get_config()
@@ -963,30 +969,36 @@ class ArxivReaderApp(App):
 
     def action_show_inspire_citation(self) -> None:
         """Show inspire-hep citation for the currently selected article."""
-        table = self.query_one("#results_table", DataTable)
+        table = self.query_one("#results_table", ArticleTableWidget)
         cursor_row = table.cursor_row
-        if cursor_row is not None and 0 <= cursor_row < len(self.search_results):
-            selected_article = self.search_results[cursor_row]
+        if cursor_row is not None:
+            selected_article = table.get_article_at_row(cursor_row)
+            if selected_article is None:
+                return
             self.fetch_inspire_citation(selected_article)
         else:
             self.notify("No article selected", severity="warning")
 
     def action_manage_tags(self) -> None:
         """Show tag management popup for the currently selected article."""
-        table = self.query_one("#results_table", DataTable)
+        table = self.query_one("#results_table", ArticleTableWidget)
         cursor_row = table.cursor_row
-        if cursor_row is not None and 0 <= cursor_row < len(self.search_results):
-            selected_article = self.search_results[cursor_row]
+        if cursor_row is not None:
+            selected_article = table.get_article_at_row(cursor_row)
+            if selected_article is None:
+                return
             self.show_tag_popup(selected_article)
         else:
             self.notify("No article selected", severity="warning")
 
     def action_manage_notes(self) -> None:
         """Open the notes popup for the currently selected article."""
-        table = self.query_one("#results_table", DataTable)
+        table = self.query_one("#results_table", ArticleTableWidget)
         cursor_row = table.cursor_row
-        if cursor_row is not None and 0 <= cursor_row < len(self.search_results):
-            selected_article = self.search_results[cursor_row]
+        if cursor_row is not None:
+            selected_article = table.get_article_at_row(cursor_row)
+            if selected_article is None:
+                return
             self.show_notes_popup(selected_article)
         else:
             self.notify("No article selected", severity="warning")
@@ -1015,7 +1027,7 @@ class ArxivReaderApp(App):
             # Update article object and table view
             article.notes_file_path = notes_path_str
             article.has_note = True
-            table = self.query_one("#results_table", DataTable)
+            table = self.query_one("#results_table", ArticleTableWidget)
             if table.cursor_row is not None:
                 self._update_table_row_status(table.cursor_row, article)
 
@@ -1049,11 +1061,13 @@ class ArxivReaderApp(App):
             
         tags_to_add, tags_to_remove = result
         
-        table = self.query_one("#results_table", DataTable)
+        table = self.query_one("#results_table", ArticleTableWidget)
         cursor_row = table.cursor_row
         
-        if cursor_row is not None and 0 <= cursor_row < len(self.search_results):
-            selected_article = self.search_results[cursor_row]
+        if cursor_row is not None:
+            selected_article = table.get_article_at_row(cursor_row)
+            if selected_article is None:
+                return
             article_id = selected_article.get_short_id()
             
             # For global search results, we need to add the article to database first
@@ -1121,13 +1135,14 @@ class ArxivReaderApp(App):
                 self.global_search_enabled = False
                 
                 # Clear table and show loading state immediately
-                table = self.query_one("#results_table", DataTable)
+                table = self.query_one("#results_table", ArticleTableWidget)
                 abstract_view = self.query_one("#abstract_content", Static)
                 table.clear()
                 abstract_view.update("Loading reference articles...")
                 self.search_results = []
                 
                 # Add loading indicator to table
+                table.clear()
                 table.add_row("⏳", "[italic]Loading reference articles...[/italic]", "[dim]Please wait[/dim]", "[dim]Fetching...[/dim]", "[dim]...[/dim]")
                 
                 # Set flags for reference mode
@@ -1156,13 +1171,14 @@ class ArxivReaderApp(App):
                 self.global_search_enabled = False
                 
                 # Clear table and show loading state immediately
-                table = self.query_one("#results_table", DataTable)
+                table = self.query_one("#results_table", ArticleTableWidget)
                 abstract_view = self.query_one("#abstract_content", Static)
                 table.clear()
                 abstract_view.update("Loading citing articles...")
                 self.search_results = []
                 
                 # Add loading indicator to table
+                table.clear()
                 table.add_row("⏳", "[italic]Loading citing articles...[/italic]", "[dim]Please wait[/dim]", "[dim]Fetching...[/dim]", "[dim]...[/dim]")
                 
                 # Set flags for citation mode
@@ -1258,6 +1274,66 @@ class ArxivReaderApp(App):
                 timeout=5
             )
     
+    def advanced_search_callback(self, search_params):
+        """Callback for when advanced search is completed."""
+        print(f"DEBUG: Advanced search callback called with params: {search_params}")
+        if not search_params:
+            print("DEBUG: No search params, returning")
+            return
+        
+        # Clear any current selection and search
+        self.current_selection = None
+        
+        # Deselect all list views
+        for list_view in self.query(ListView):
+            list_view.index = None
+        
+        # Set the search parameters
+        self.current_query = search_params["query"]
+        self.advanced_search_params = search_params
+        
+        # Update search input with the formatted query
+        search_input = self.query_one("#search_input", Input)
+        search_input.value = search_params["query"]
+        
+        # Enable global search mode
+        global_search_checkbox = self.query_one("#global_search_checkbox", Checkbox)
+        global_search_checkbox.value = True
+        self.global_search_enabled = True
+        
+        # Set flags for global search results
+        self.current_results_from_global = True
+        self.current_results_type = None
+        
+        # Update title and trigger search
+        self.update_results_title()
+        self.refresh_left_panel_counts()
+        
+        # Clear table and show loading
+        table = self.query_one("#results_table", ArticleTableWidget)
+        abstract_view = self.query_one("#abstract_content", Static)
+        table.clear()
+        abstract_view.update("Loading search results...")
+        self.search_results = []
+        
+        # Add loading indicator
+        table.clear()
+        table.add_row("⏳", "[italic]Searching arXiv...[/italic]", "[dim]Please wait[/dim]", "[dim]Fetching...[/dim]", "[dim]...[/dim]")
+        
+        # Notify user
+        max_results = search_params["max_results"]
+        sort_by = search_params["sort_by"]
+        fields = search_params["selected_fields"]
+        field_text = "all fields" if "all" in fields else ", ".join(fields)
+        
+        self.notify(f"Advanced search: {max_results} results, sorted by {sort_by}, searching {field_text}")
+        
+        # Debug: Log the actual query being used
+        debug_log(f"Advanced search query: '{search_params['query']}', max_results: {max_results}")
+        
+        # Trigger the search
+        self.fetch_articles_from_arxiv_advanced(search_params)
+
     def selection_popup_callback(self, selection_value):
         """Callback for when a view is selected from the popup."""
         if not selection_value:
@@ -1450,8 +1526,8 @@ class ArxivReaderApp(App):
 
     def _update_table_row_status(self, row_index: int, article) -> None:
         """Update the status column for a specific table row."""
-        table = self.query_one("#results_table", DataTable)
-        status = self._build_status_string(article)
+        table = self.query_one("#results_table", ArticleTableWidget)
+        status = table._build_status_string(article, table.current_is_global_search)
         table.update_cell_at(Coordinate(row_index, 0), status)
 
     def reload_left_panel(self) -> None:

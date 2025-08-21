@@ -313,3 +313,170 @@ class NotesPopupScreen(ModalScreen):
     def on_key(self, event) -> None:
         if event.key == "escape":
             self.dismiss(None)
+
+
+class AdvancedSearchPopupScreen(ModalScreen):
+    """Screen for advanced arXiv search with multiple options."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.search_fields = {
+            "all": "All Fields",
+            "ti": "Title",
+            "au": "Author(s)", 
+            "abs": "Abstract",
+            "co": "Comments",
+            "jr": "Journal Reference",
+            "cat": "Subject Category",
+            "rn": "Report Number",
+            "id": "arXiv Identifier"
+        }
+        self.selected_fields = set(["all"])  # Default to all fields
+        
+    def compose(self):
+        with Vertical(id="advanced_search_dialog"):
+            yield Static("Advanced Web Search", id="advanced_search_title")
+            
+            # Search query input
+            with Horizontal(id="search_query_container"):
+                yield Static("Search Query:", classes="label")
+                yield Input(placeholder="Enter your search terms...", id="advanced_search_input")
+            
+            # Number of results
+            with Horizontal(id="results_count_container"):
+                yield Static("Max Results:", classes="label") 
+                yield Select([
+                    ("25", 25),
+                    ("50", 50), 
+                    ("100", 100),
+                    ("200", 200)
+                ], value=100, id="results_count_select")
+            
+            # Sort order
+            with Horizontal(id="sort_order_container"):
+                yield Static("Sort by:", classes="label")
+                yield Select([
+                    ("Relevance", "relevance"),
+                    ("Newest First", "submitted_date"),
+                    ("Last Updated", "last_updated_date")
+                ], value="relevance", id="sort_order_select")
+            
+            # Search fields
+            yield Static("Search in Fields:", classes="section_title")
+            with VerticalScroll(id="search_fields_container"):
+                for field_code, field_name in self.search_fields.items():
+                    is_checked = field_code in self.selected_fields
+                    yield Checkbox(
+                        field_name, 
+                        value=is_checked,
+                        id=f"field_{field_code}"
+                    )
+            
+            # Action buttons
+            with Horizontal(id="advanced_search_buttons"):
+                yield Button("Search", variant="primary", id="advanced_search_submit_button")
+                yield Button("Cancel", id="advanced_cancel_button")
+
+    def on_mount(self) -> None:
+        self.query_one("#advanced_search_input").focus()
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        """Handle field selection changes."""
+        field_code = event.checkbox.id.replace("field_", "")
+        
+        if field_code == "all":
+            if event.value:
+                # If "All Fields" is checked, uncheck others and select only "all"
+                self.selected_fields = {"all"}
+                for other_field in self.search_fields:
+                    if other_field != "all":
+                        try:
+                            other_checkbox = self.query_one(f"#field_{other_field}")
+                            other_checkbox.value = False
+                        except:
+                            pass
+            else:
+                # If "All Fields" is unchecked, remove it from selection
+                self.selected_fields.discard("all")
+        else:
+            # Handle specific field selection
+            if event.value:
+                # If a specific field is checked, uncheck "All Fields" and add this field
+                self.selected_fields.discard("all")
+                self.selected_fields.add(field_code)
+                try:
+                    all_checkbox = self.query_one("#field_all")
+                    all_checkbox.value = False
+                except:
+                    pass
+            else:
+                # If a specific field is unchecked, remove it
+                self.selected_fields.discard(field_code)
+                
+                # If no fields are selected, default back to "All Fields"
+                if not self.selected_fields:
+                    self.selected_fields.add("all")
+                    try:
+                        all_checkbox = self.query_one("#field_all")
+                        all_checkbox.value = True
+                    except:
+                        pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "advanced_cancel_button":
+            self.dismiss(None)
+        elif event.button.id == "advanced_search_submit_button":
+            try:
+                # Gather search parameters
+                query = self.query_one("#advanced_search_input").value.strip()
+                if not query:
+                    return  # Don't search with empty query
+                    
+                max_results = self.query_one("#results_count_select").value
+                sort_by = self.query_one("#sort_order_select").value
+                
+                # Build field-specific query if not searching all fields
+                if "all" not in self.selected_fields and self.selected_fields:
+                    # For single field searches, use the field directly
+                    if len(self.selected_fields) == 1:
+                        field = list(self.selected_fields)[0]
+                        # Handle special case for quotes in query
+                        if " " in query and not (query.startswith('"') and query.endswith('"')):
+                            formatted_query = f'{field}:"{query}"'
+                        else:
+                            formatted_query = f"{field}:{query}"
+                    else:
+                        # For multiple field searches, use OR
+                        field_queries = []
+                        for field in self.selected_fields:
+                            if " " in query and not (query.startswith('"') and query.endswith('"')):
+                                field_queries.append(f'{field}:"{query}"')
+                            else:
+                                field_queries.append(f"{field}:{query}")
+                        formatted_query = " OR ".join(field_queries)
+                else:
+                    formatted_query = query
+                
+                search_params = {
+                    "query": formatted_query,
+                    "max_results": max_results,
+                    "sort_by": sort_by,
+                    "selected_fields": list(self.selected_fields)
+                }
+                
+                # Debug: Print the search parameters before dismissing
+                print(f"DEBUG: Advanced search dismissing with params: {search_params}")
+                self.dismiss(search_params)
+                
+            except Exception as e:
+                print(f"ERROR in advanced search button handler: {e}")
+                import traceback
+                traceback.print_exc()
+
+    def on_key(self, event) -> None:
+        if event.key == "escape":
+            self.dismiss(None)
+        elif event.key == "enter":
+            # Trigger search on Enter
+            search_button = self.query_one("#advanced_search_submit_button")
+            search_button.press()

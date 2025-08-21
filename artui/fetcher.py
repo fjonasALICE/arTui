@@ -257,16 +257,36 @@ class ArticleFetcher:
         
         return results
     
-    def search_arxiv(self, query: str, max_results: int = 100) -> List[arxiv.Result]:
-        """Search arXiv directly for global search functionality."""
+    def search_arxiv(self, query: str, max_results: int = 100, sort_by: str = "relevance") -> List[arxiv.Result]:
+        """Search arXiv directly for global search functionality.
+        
+        Args:
+            query: Search query string (can include field-specific searches)
+            max_results: Maximum number of results to return
+            sort_by: Sort criteria - "relevance", "submitted_date", or "last_updated_date"
+        """
         try:
+            # Map sort_by string to arxiv.SortCriterion
+            sort_mapping = {
+                "relevance": arxiv.SortCriterion.Relevance,
+                "submitted_date": arxiv.SortCriterion.SubmittedDate,
+                "last_updated_date": arxiv.SortCriterion.LastUpdatedDate
+            }
+            
+            sort_criterion = sort_mapping.get(sort_by, arxiv.SortCriterion.Relevance)
+            
+            print(f"DEBUG: Searching arXiv with query='{query}', max_results={max_results}, sort_by={sort_by}")
+            
             search = arxiv.Search(
                 query=query,
                 max_results=max_results,
-                sort_by=arxiv.SortCriterion.Relevance
+                sort_by=sort_criterion
             )
             
-            return list(search.results())
+            results = list(search.results())
+            print(f"DEBUG: Retrieved {len(results)} results from arXiv")
+            
+            return results
             
         except Exception as e:
             print(f"Error searching arXiv: {e}")

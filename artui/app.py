@@ -532,7 +532,11 @@ class ArxivReaderApp(App):
         config = self.config_manager.get_config()
         
         if self.current_selection == "saved_articles_filter":
-            return self.db.get_saved_articles()
+            if self.current_query:
+                saved_results = self.db.get_saved_articles()
+                return self._filter_results_by_query(saved_results)
+            else:
+                return self.db.get_saved_articles()
         
         elif self.current_selection == "unread_articles_filter":
             if self.current_query:

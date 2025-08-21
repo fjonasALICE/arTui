@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:  # Allow manual triggering
 
+permissions:
+  contents: write  # Allow the workflow to write to the repository
+
 jobs:
   update-badge:
     runs-on: ubuntu-latest
@@ -15,6 +18,7 @@ jobs:
       with:
         fetch-depth: 0  # Fetch full history to count all commits
         token: ${{ secrets.GITHUB_TOKEN }}
+        persist-credentials: true
     
     - name: Count commits
       id: count

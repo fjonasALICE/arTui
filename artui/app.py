@@ -79,6 +79,7 @@ class ArxivReaderApp(App):
         self.current_selection = None
         self.global_search_enabled = False
         self.current_results_from_global = False
+        self.current_results_type = None  # 'references', 'citations', or None
         self.last_refresh_time = None
         
         # Set default theme
@@ -309,6 +310,7 @@ class ArxivReaderApp(App):
 
         # Set flag to indicate results are from local database
         self.current_results_from_global = False
+        self.current_results_type = None
         self.update_results_title()
         self.fetch_articles_from_db()
 
@@ -377,7 +379,135 @@ class ArxivReaderApp(App):
 
         self.call_from_thread(self._populate_table)
         self.call_from_thread(self.query_one("#results_table").focus)
+    
+    @work(exclusive=True, thread=True)
+    def fetch_articles_by_references(self, inspire_ids: List[int]) -> None:
+        """Worker to fetch articles by INSPIRE-HEP reference IDs."""
+        from .ui.utils import get_arxiv_ids_from_inspire_ids
+        
+        # Get table and abstract view references
+        table = self.query_one("#results_table", DataTable)
+        abstract_view = self.query_one("#abstract_content", Static)
 
+        try:
+            # Convert INSPIRE IDs to arXiv IDs
+            self.call_from_thread(
+                self.notify, 
+                f"Converting {len(inspire_ids)} reference IDs to arXiv IDs...", 
+                timeout=3
+            )
+            
+            arxiv_ids = get_arxiv_ids_from_inspire_ids(inspire_ids)
+            
+            if not arxiv_ids:
+                self.call_from_thread(
+                    self.notify,
+                    "No arXiv IDs found for the references",
+                    severity="warning",
+                    timeout=5
+                )
+                return
+            
+            # Fetch articles by arXiv IDs
+            arxiv_results = self.fetcher.fetch_articles_by_ids(arxiv_ids)
+            
+            # Add status information (not saved, not viewed since from references)
+            self.search_results = []
+            for result in arxiv_results:
+                result.is_saved = False
+                result.is_viewed = False
+                self.search_results.append(result)
+            
+            # Set flag to indicate results are from references (similar to global search)
+            self.current_results_from_global = True
+            self.current_results_type = "references"
+            self.current_query = ""  # Clear search query since this is reference-based
+            
+            self.call_from_thread(
+                self.notify,
+                f"Found {len(self.search_results)} reference articles",
+                timeout=3
+            )
+                
+        except Exception as e:
+            self.call_from_thread(table.clear)
+            self.call_from_thread(
+                abstract_view.update,
+                f"[bold red]Error fetching reference articles:[/bold red]\n{e}",
+            )
+            self.search_results = []
+
+        # Clear loading indicator and populate table with real results
+        self.call_from_thread(table.clear)
+        self.call_from_thread(self._populate_table)
+        self.call_from_thread(self.update_results_title)
+        self.call_from_thread(self.refresh_left_panel_counts)
+        self.call_from_thread(self.query_one("#results_table").focus)
+    
+    @work(exclusive=True, thread=True)
+    def fetch_articles_by_citations(self, inspire_id: int) -> None:
+        """Worker to fetch articles that cite the given INSPIRE-HEP record."""
+        from .ui.utils import get_citing_articles_from_inspire_id
+        
+        # Get table and abstract view references
+        table = self.query_one("#results_table", DataTable)
+        abstract_view = self.query_one("#abstract_content", Static)
+
+        try:
+            # Get arXiv IDs of citing articles
+            self.call_from_thread(
+                self.notify, 
+                f"Finding articles that cite this paper...", 
+                timeout=3
+            )
+            
+            arxiv_ids = get_citing_articles_from_inspire_id(inspire_id, max_results=100)
+            
+            if not arxiv_ids:
+                self.call_from_thread(
+                    self.notify,
+                    "No citing articles with arXiv IDs found",
+                    severity="warning",
+                    timeout=5
+                )
+                return
+            
+            # Fetch articles by arXiv IDs
+            arxiv_results = self.fetcher.fetch_articles_by_ids(arxiv_ids)
+            
+            # Add status information (not saved, not viewed since from citations)
+            self.search_results = []
+            for result in arxiv_results:
+                result.is_saved = False
+                result.is_viewed = False
+                self.search_results.append(result)
+            
+            # Set flag to indicate results are from citations (similar to global search)
+            self.current_results_from_global = True
+            self.current_results_type = "citations"
+            self.current_query = ""  # Clear search query since this is citation-based
+            
+            self.call_from_thread(
+                self.notify,
+                f"Found {len(self.search_results)} citing articles",
+                timeout=3
+            )
+                
+        except Exception as e:
+            self.call_from_thread(table.clear)
+            self.call_from_thread(
+                abstract_view.update,
+                f"[bold red]Error fetching citing articles:[/bold red]\n{e}",
+            )
+            self.search_results = []
+
+        # Clear loading indicator and populate table with real results
+        self.call_from_thread(table.clear)
+        self.call_from_thread(self._populate_table)
+        self.call_from_thread(self.update_results_title)
+        self.call_from_thread(self.refresh_left_panel_counts)
+        self.call_from_thread(self.query_one("#results_table").focus)
+    
     @work(exclusive=True, thread=True) 
     def fetch_articles_from_db(self) -> None:
         """Worker to fetch and display articles from database."""
@@ -961,6 +1091,86 @@ class ArxivReaderApp(App):
             if tags_to_add or tags_to_remove:
                 self.notify(f"Updated tags for {article_id}")
 
+    def bibtex_popup_callback(self, result) -> None:
+        """Handle the result from the bibtex popup."""
+        if result is None:
+            return
+        
+        # Check if this is a search_references or search_citations action
+        if isinstance(result, tuple) and len(result) == 2:
+            action, data = result
+            if action == "search_references":
+                inspire_ids = data
+                # Clear any current selection and search
+                self.current_selection = None
+                self.current_query = ""
+                
+                # Deselect all list views
+                for list_view in self.query(ListView):
+                    list_view.index = None
+                
+                # Clear search input and disable global search checkbox
+                search_input = self.query_one("#search_input", Input)
+                search_input.value = ""
+                global_search_checkbox = self.query_one("#global_search_checkbox", Checkbox)
+                global_search_checkbox.value = False
+                self.global_search_enabled = False
+                
+                # Clear table and show loading state immediately
+                table = self.query_one("#results_table", DataTable)
+                abstract_view = self.query_one("#abstract_content", Static)
+                table.clear()
+                abstract_view.update("Loading reference articles...")
+                self.search_results = []
+                
+                # Add loading indicator to table
+                table.add_row("⏳", "[italic]Loading reference articles...[/italic]", "[dim]Please wait[/dim]", "[dim]Fetching...[/dim]", "[dim]...[/dim]")
+                
+                # Set flags for reference mode
+                self.current_results_from_global = True
+                self.current_results_type = "references"
+                self.update_results_title()
+                
+                # Trigger the references fetch
+                self.fetch_articles_by_references(inspire_ids)
+            
+            elif action == "search_citations":
+                inspire_id = data
+                # Clear any current selection and search
+                self.current_selection = None
+                self.current_query = ""
+                
+                # Deselect all list views
+                for list_view in self.query(ListView):
+                    list_view.index = None
+                
+                # Clear search input and disable global search checkbox
+                search_input = self.query_one("#search_input", Input)
+                search_input.value = ""
+                global_search_checkbox = self.query_one("#global_search_checkbox", Checkbox)
+                global_search_checkbox.value = False
+                self.global_search_enabled = False
+                
+                # Clear table and show loading state immediately
+                table = self.query_one("#results_table", DataTable)
+                abstract_view = self.query_one("#abstract_content", Static)
+                table.clear()
+                abstract_view.update("Loading citing articles...")
+                self.search_results = []
+                
+                # Add loading indicator to table
+                table.add_row("⏳", "[italic]Loading citing articles...[/italic]", "[dim]Please wait[/dim]", "[dim]Fetching...[/dim]", "[dim]...[/dim]")
+                
+                # Set flags for citation mode
+                self.current_results_from_global = True
+                self.current_results_type = "citations"
+                self.update_results_title()
+                
+                # Trigger the citations fetch
+                self.fetch_articles_by_citations(inspire_id)
+
+
+
     @work(exclusive=True, thread=True)
     def fetch_inspire_citation(self, article) -> None:
         """Worker to fetch bibtex citation from inspire-hep."""
@@ -1029,8 +1239,10 @@ class ArxivReaderApp(App):
                     n_citations,
                     inspire_link,
                     article.title,
-                    references
-                )
+                    references,
+                    inspire_id
+                ),
+                self.bibtex_popup_callback
             )
 
         except Exception as e:
@@ -1092,6 +1304,13 @@ class ArxivReaderApp(App):
             # Check if we're showing global search results
             if self.current_results_from_global and self.current_query:
                 title = "ArXiv Web Search"
+            elif self.current_results_from_global and not self.current_query:
+                if self.current_results_type == "references":
+                    title = "Reference Articles"
+                elif self.current_results_type == "citations":
+                    title = "Citing Articles"
+                else:
+                    title = "External Articles"
             else:
                 # Default title
                 title = "Articles"

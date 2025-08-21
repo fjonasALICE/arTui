@@ -271,3 +271,31 @@ class ArticleFetcher:
         except Exception as e:
             print(f"Error searching arXiv: {e}")
             return []
+    
+    def fetch_articles_by_ids(self, arxiv_ids: List[str]) -> List[arxiv.Result]:
+        """Fetch specific arXiv articles by their IDs.
+        
+        Args:
+            arxiv_ids: List of arXiv IDs (e.g., ['1234.5678', '2109.12345'])
+            
+        Returns:
+            List of arxiv.Result objects for the found articles
+        """
+        if not arxiv_ids:
+            return []
+            
+        try:
+            # Use the id_list parameter to fetch articles directly by ID
+            search = arxiv.Search(id_list=arxiv_ids)
+            
+            # Create a client and fetch results
+            client = arxiv.Client()
+            articles = list(client.results(search))
+            
+            print(f"Fetched {len(articles)} articles from {len(arxiv_ids)} requested IDs")
+            
+            return articles
+            
+        except Exception as e:
+            print(f"Error fetching articles by IDs: {e}")
+            return []

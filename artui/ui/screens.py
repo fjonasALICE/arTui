@@ -9,6 +9,9 @@ from textual.widgets import (
     Button, Static, Input, Select, Checkbox, TextArea, ListView, ListItem
 )
 from textual.screen import ModalScreen
+from textual import events
+
+from .utils import get_arxiv_ids_from_inspire_ids
 
 
 class SelectionPopupScreen(ModalScreen):
@@ -35,21 +38,37 @@ class SelectionPopupScreen(ModalScreen):
 class BibtexPopupScreen(ModalScreen):
     """Screen to display bibtex citation information."""
 
-    def __init__(self, bibtex_content: str, n_citations: int, inspire_link: str, article_title: str, references: List[str], *args, **kwargs):
+    def __init__(self, bibtex_content: str, n_citations: int, inspire_link: str, article_title: str, references: List[str], inspire_id: int = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.bibtex_content = bibtex_content
         self.n_citations = n_citations
         self.inspire_link = inspire_link
         self.article_title = article_title
         self.references = references
+        self.inspire_id = inspire_id
+
 
     def compose(self):
+        # Create clickable citations text
+        if self.n_citations > 0 and self.inspire_id:
+            citations_text = f"[bold]Citations:[/] {self.n_citations} [dim](click to view citing articles)[/]"
+        else:
+            citations_text = f"[bold]Citations:[/] {self.n_citations}"
+        
+        # Create clickable references text
+        if len(self.references) > 0:
+            ref_count = len(self.references)
+            ref_text = "reference" if ref_count == 1 else "references"
+            references_text = f"[bold]References:[/] {ref_count} {ref_text} [dim](click to view references)[/]"
+        else:
+            references_text = f"[bold]References:[/] 0 references"
+        
         yield Vertical(
             Static("[bold $primary]Inspire-HEP Information[/]", id="bibtex_popup_title"),
-            Static(f"Article: {self.article_title[:60]}{'...' if len(self.article_title) > 60 else ''}", id="bibtex_article_title"),
-            Static(f"Citations: {self.n_citations}", id="citation_count"),
-            Static(f"References: {len(self.references)} reference(s)", id="references"),
-            Static(f"Inspire Link: [@click=\"app.open_link('{self.inspire_link}')\"]{self.inspire_link}[/]", id="inspire_link"),
+            Static(f"[bold]Article:[/] {self.article_title[:60]}{'...' if len(self.article_title) > 60 else ''}", id="bibtex_article_title"),
+            Static(citations_text, id="citation_count"),
+            Static(references_text, id="references"),
+            Static(f"[bold]Inspire Link:[/] [@click=\"app.open_link('{self.inspire_link}')\"]{self.inspire_link}[/]", id="inspire_link"),
             Static("[bold $primary]BibTeX[/]", id="bibtex_label"),
             VerticalScroll(
                 Static(self.bibtex_content, id="bibtex_content"),
@@ -73,6 +92,67 @@ class BibtexPopupScreen(ModalScreen):
             import pyperclip
             pyperclip.copy(self.bibtex_content)
             self.notify("BibTeX copied to clipboard", timeout=2)
+    
+    def on_click(self, event: events.Click) -> None:
+        """Handle clicks on the popup."""
+        # Check if click was on citations or references static widget
+        if hasattr(event.widget, 'id'):
+            if event.widget.id == "citation_count" and self.n_citations > 0 and self.inspire_id:
+                self._search_citations()
+            elif event.widget.id == "references" and len(self.references) > 0:
+                self._search_references()
+    
+    def action_search_references(self) -> None:
+        """Handle clicking on references link."""
+        self._search_references()
+    
+    def action_search_citations(self) -> None:
+        """Handle clicking on citations link."""
+        self._search_citations()
+
+    def _search_references(self) -> None:
+        """Prepare reference IDs for fetching articles."""
+        if not self.references:
+            self.notify("No references to search", severity="warning")
+            return
+        
+        # Convert reference IDs to integers
+        try:
+            # The references should be INSPIRE-HEP record IDs (integers)
+            inspire_ids = []
+            for ref in self.references:
+                try:
+                    # Try to convert to int, skip if not a valid ID
+                    inspire_ids.append(int(ref))
+                except (ValueError, TypeError):
+                    continue
+            
+            if not inspire_ids:
+                self.notify("No valid INSPIRE-HEP IDs found in references", severity="warning")
+                return
+            
+            self.notify(f"Fetching {len(inspire_ids)} reference articles...", timeout=3)
+            
+            # Dismiss the popup with the inspire_ids to trigger reference fetch
+            self.dismiss(("search_references", inspire_ids))
+            
+        except Exception as e:
+            self.notify(f"Error processing references: {str(e)}", severity="error")
+
+    def _search_citations(self) -> None:
+        """Prepare to fetch articles that cite this paper."""
+        if not self.inspire_id:
+            self.notify("No INSPIRE ID available for citations", severity="warning")
+            return
+        
+        if self.n_citations == 0:
+            self.notify("This article has no citations", severity="warning")
+            return
+            
+        self.notify(f"Fetching {self.n_citations} citing articles...", timeout=3)
+        
+        # Dismiss the popup with the inspire_id to trigger citation fetch
+        self.dismiss(("search_citations", self.inspire_id))
 
     def on_key(self, event) -> None:
         if event.key == "escape":

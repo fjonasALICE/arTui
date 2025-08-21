@@ -1,0 +1,56 @@
+name: Update Commit Count Badge
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  update-badge:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch full history to count all commits
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Count commits
+      id: count
+      run: |
+        COMMIT_COUNT=$(git rev-list --count HEAD)
+        echo "count=$COMMIT_COUNT" >> $GITHUB_OUTPUT
+        echo "Total commits: $COMMIT_COUNT"
+    
+    - name: Update README badge
+      run: |
+        # Update the commit count in README.md
+        sed -i "s/commits-[0-9]\+-green/commits-${{ steps.count.outputs.count }}-green/g" README.md
+        
+        # Check if changes were made
+        if git diff --quiet README.md; then
+          echo "No changes needed to README.md"
+          exit 0
+        fi
+        
+        echo "Updated README.md with new commit count: ${{ steps.count.outputs.count }}"
+    
+    - name: Commit and push changes
+      run: |
+        # Configure git
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        # Check if there are changes to commit
+        if git diff --quiet README.md; then
+          echo "No changes to commit"
+          exit 0
+        fi
+        
+        # Commit and push
+        git add README.md
+        git commit -m "Auto-update commit count badge to ${{ steps.count.outputs.count }} [skip ci]"
+        git push
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

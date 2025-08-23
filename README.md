@@ -215,3 +215,14 @@ Copyright 2025 Florian Jonas
 ## Support
 
 For issues and feature requests, please use the GitHub issue tracker. 
+## Dependencies
+
+This project depends on the following Python packages:
+
+- [textual](https://pypi.org/project/textual/) - `textual[syntax]>=0.41.0`
+- [arxiv](https://pypi.org/project/arxiv/) - `arxiv>=2.0.0`
+- [pyyaml](https://pypi.org/project/pyyaml/) - `pyyaml>=6.0`
+- [requests](https://pypi.org/project/requests/) - `requests>=2.25.0`
+- [pyperclip](https://pypi.org/project/pyperclip/) - `pyperclip>=1.8.0`
+- [pygments](https://pypi.org/project/pygments/) - `pygments>=2.10.0`
+- [pyinspirehep](https://pypi.org/project/pyinspirehep/) - `pyinspirehep>=0.1.0`

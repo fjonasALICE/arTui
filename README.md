@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![Commits](https://img.shields.io/badge/commits-31-green.svg)](#)
+[![Commits](https://img.shields.io/badge/commits-33-green.svg)](#)
 [![Built with Textual](https://img.shields.io/badge/built%20with-Textual-purple.svg)](https://github.com/Textualize/textual)
 [![arXiv](https://img.shields.io/badge/data%20source-arXiv-red.svg)](https://arxiv.org/)
 [![INSPIRE-HEP](https://img.shields.io/badge/data%20source-INSPIRE--HEP-blue.svg)](https://inspirehep.net/)

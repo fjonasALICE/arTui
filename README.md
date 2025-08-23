@@ -44,6 +44,14 @@ Stay up to date with recent publications in your field. New arXiv articles get f
 
 *The INSPIRE citation interface showing BibTeX citation information*
 
+## How it works
+- **Feed Configuration**: Categories and filters are configured in the YAML config file, which determines what articles appear in your personalized feed
+- **Stay Current**: Browse articles from your feed to keep up with the latest publications in your field
+- **Save for Later**: Mark articles you want to revisit by saving them to your Library using the "save" key
+- **Automatic Cleanup**: Read articles in your feed are automatically removed after a retention period (default: 30 days) to keep your feed fresh
+- **Permanent Library**: Saved articles remain in your library indefinitely and can be enhanced with custom tags and markdown notes
+- **Global Discovery**: Search the entire arXiv database using "Global search" and add interesting articles directly to your library
+- **Citation Network**: Explore the academic network by browsing papers that reference a given article or papers that cite it
 
 
 ## Installation

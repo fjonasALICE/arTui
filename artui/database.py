@@ -95,6 +95,8 @@ class ArticleDatabase:
                 )
             """)
             
+
+            
             # Create indexes for performance
             self._create_indexes(conn)
             
@@ -111,6 +113,7 @@ class ArticleDatabase:
             "CREATE INDEX IF NOT EXISTS idx_tags_name ON tags (name)",
             "CREATE INDEX IF NOT EXISTS idx_article_tags_article ON article_tags (article_id)",
             "CREATE INDEX IF NOT EXISTS idx_article_tags_tag ON article_tags (tag_id)",
+
         ]
         
         for index_sql in indexes:
@@ -228,46 +231,54 @@ class ArticleDatabase:
         
         return added_count
     
-    def get_articles_by_category(self, category: str) -> List[Dict]:
-        """Get articles by category with status information."""
+    def get_articles_by_category(self, category: str, feed_retention_days: Optional[int] = None) -> List[Dict]:
+        """Get articles by category with status information, optionally filtered by feed retention."""
         with self.get_connection() as conn:
-            cursor = conn.execute("""
+            retention_filter = self._get_feed_retention_filter(feed_retention_days)
+            cursor = conn.execute(f"""
                 SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
                        CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
+
                 FROM articles a
                 LEFT JOIN article_status s ON a.id = s.article_id
                 LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
+
                 WHERE EXISTS (
                     SELECT 1 FROM json_each(a.categories) 
                     WHERE json_each.value = ?
-                )
+                ) AND {retention_filter}
                 ORDER BY a.published_date DESC
             """, (category,))
             
             return [dict(row) for row in cursor.fetchall()]
     
-    def search_articles(self, query: str) -> List[Dict]:
-        """Search articles by title, authors, or summary."""
+    def search_articles(self, query: str, feed_retention_days: Optional[int] = None) -> List[Dict]:
+        """Search articles by title, authors, or summary, optionally filtered by feed retention."""
         with self.get_connection() as conn:
             search_term = f"%{query}%"
-            cursor = conn.execute("""
+            retention_filter = self._get_feed_retention_filter(feed_retention_days)
+            cursor = conn.execute(f"""
                 SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
                        CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
+
                 FROM articles a
                 LEFT JOIN article_status s ON a.id = s.article_id
                 LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
-                WHERE a.title LIKE ? OR a.authors LIKE ? OR a.summary LIKE ?
+
+                WHERE (a.title LIKE ? OR a.authors LIKE ? OR a.summary LIKE ?)
+                  AND {retention_filter}
                 ORDER BY a.published_date DESC
             """, (search_term, search_term, search_term))
             
             return [dict(row) for row in cursor.fetchall()]
     
-    def search_articles_in_categories(self, query: str, categories: List[str]) -> List[Dict]:
-        """Search articles by title, authors, or summary, restricted to given categories."""
+    def search_articles_in_categories(self, query: str, categories: List[str], feed_retention_days: Optional[int] = None) -> List[Dict]:
+        """Search articles by title, authors, or summary, restricted to given categories, optionally filtered by feed retention."""
         if not categories:
-            return self.search_articles(query)
+            return self.search_articles(query, feed_retention_days)
         with self.get_connection() as conn:
             search_term = f"%{query}%"
+            retention_filter = self._get_feed_retention_filter(feed_retention_days)
             # Build category conditions using JSON functions
             category_conditions = []
             params = []
@@ -278,11 +289,14 @@ class ArticleDatabase:
             sql = f'''
                 SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
                        CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
+
                 FROM articles a
                 LEFT JOIN article_status s ON a.id = s.article_id
                 LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
+
                 WHERE ({category_clause})
                   AND (a.title LIKE ? OR a.authors LIKE ? OR a.summary LIKE ?)
+                  AND {retention_filter}
                 ORDER BY a.published_date DESC
             '''
             params += [search_term, search_term, search_term]
@@ -295,9 +309,11 @@ class ArticleDatabase:
             cursor = conn.execute("""
                 SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
                        CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
+
                 FROM articles a
                 INNER JOIN article_status s ON a.id = s.article_id
                 LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
+
                 WHERE s.is_saved = 1
                 ORDER BY s.saved_at DESC
             """)
@@ -310,19 +326,22 @@ class ArticleDatabase:
             cursor = conn.execute("""
                 SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
                        CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
+
                 FROM articles a
                 LEFT JOIN article_status s ON a.id = s.article_id
                 LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
+
                 WHERE s.is_viewed IS NULL OR s.is_viewed = 0
                 ORDER BY a.published_date DESC
             """)
             
             return [dict(row) for row in cursor.fetchall()]
     
-    def get_all_articles(self) -> List[Dict]:
-        """Get all articles from database, regardless of status."""        
+    def get_all_articles(self, feed_retention_days: Optional[int] = None) -> List[Dict]:
+        """Get all articles from database, optionally filtered by feed retention."""        
         with self.get_connection() as conn:
-            cursor = conn.execute("""
+            retention_filter = self._get_feed_retention_filter(feed_retention_days)
+            cursor = conn.execute(f"""
                 SELECT a.*, 
                        COALESCE(s.is_saved, 0) as is_saved, 
                        COALESCE(s.is_viewed, 0) as is_viewed, 
@@ -331,6 +350,7 @@ class ArticleDatabase:
                 FROM articles a
                 LEFT JOIN article_status s ON a.id = s.article_id
                 LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
+                WHERE {retention_filter}
                 ORDER BY a.published_date DESC
             """)
             
@@ -342,14 +362,29 @@ class ArticleDatabase:
             cursor = conn.execute("""
                 SELECT a.*, s.is_saved, s.is_viewed, s.saved_at, s.viewed_at,
                        CASE WHEN at.article_id IS NOT NULL THEN 1 ELSE 0 END as has_tags
+
                 FROM articles a
                 LEFT JOIN article_status s ON a.id = s.article_id
                 LEFT JOIN (SELECT DISTINCT article_id FROM article_tags) at ON a.id = at.article_id
+
                 WHERE a.notes_file_path IS NOT NULL
                 ORDER BY a.published_date DESC
             """)
             
             return [dict(row) for row in cursor.fetchall()]
+    
+    def _get_feed_retention_filter(self, retention_days: Optional[int]) -> str:
+        """Get SQL condition for feed retention filtering."""
+        if retention_days is None:
+            return "1=1"  # No filtering
+        
+        from datetime import datetime, timedelta
+        cutoff_date = (datetime.now() - timedelta(days=retention_days)).isoformat()
+        return f"""
+            (a.published_date >= '{cutoff_date}' 
+             OR s.is_viewed IS NULL 
+             OR s.is_viewed = 0)
+        """
     
     # Status management methods
     
@@ -430,6 +465,18 @@ class ArticleDatabase:
             """)
             return cursor.fetchone()['count']
     
+    def get_feed_articles_count(self, feed_retention_days: Optional[int] = None) -> int:
+        """Get count of articles in feed (less than retention period days old OR unread)."""
+        with self.get_connection() as conn:
+            retention_filter = self._get_feed_retention_filter(feed_retention_days)
+            cursor = conn.execute(f"""
+                SELECT COUNT(*) as count
+                FROM articles a
+                LEFT JOIN article_status s ON a.id = s.article_id
+                WHERE {retention_filter}
+            """)
+            return cursor.fetchone()['count']
+    
     def get_unread_count(self) -> int:
         """Get count of all unread articles."""
         with self.get_connection() as conn:
@@ -464,10 +511,11 @@ class ArticleDatabase:
             """)
             return cursor.fetchone()['count']
     
-    def get_unread_count_by_category(self, category: str) -> int:
-        """Get count of unread articles for a specific category."""
+    def get_unread_count_by_category(self, category: str, feed_retention_days: Optional[int] = None) -> int:
+        """Get count of unread articles for a specific category, optionally filtered by feed retention."""
         with self.get_connection() as conn:
-            cursor = conn.execute("""
+            retention_filter = self._get_feed_retention_filter(feed_retention_days)
+            cursor = conn.execute(f"""
                 SELECT COUNT(*) as count
                 FROM articles a
                 LEFT JOIN article_status s ON a.id = s.article_id
@@ -475,15 +523,17 @@ class ArticleDatabase:
                     SELECT 1 FROM json_each(a.categories) 
                     WHERE json_each.value = ?
                 ) AND (s.is_viewed IS NULL OR s.is_viewed = 0)
+                  AND {retention_filter}
             """, (category,))
             return cursor.fetchone()['count']
     
-    def get_unread_count_by_filter(self, filter_config: Dict) -> int:
-        """Get count of unread articles for a filter configuration."""
+    def get_unread_count_by_filter(self, filter_config: Dict, feed_retention_days: Optional[int] = None) -> int:
+        """Get count of unread articles for a filter configuration, optionally filtered by feed retention."""
         if not filter_config:
             return 0
             
         with self.get_connection() as conn:
+            retention_filter = self._get_feed_retention_filter(feed_retention_days)
             # If filter has categories specified
             if filter_config.get("categories"):
                 category_conditions = []
@@ -505,6 +555,7 @@ class ArticleDatabase:
                         WHERE ({category_clause})
                         AND (LOWER(a.title) LIKE ? OR LOWER(a.authors) LIKE ? OR LOWER(a.summary) LIKE ?)
                         AND (s.is_viewed IS NULL OR s.is_viewed = 0)
+                        AND {retention_filter}
                     """, params + [f'%{query}%', f'%{query}%', f'%{query}%'])
                 else:
                     cursor = conn.execute(f"""
@@ -513,22 +564,26 @@ class ArticleDatabase:
                         LEFT JOIN article_status s ON a.id = s.article_id
                         WHERE ({category_clause})
                         AND (s.is_viewed IS NULL OR s.is_viewed = 0)
+                        AND {retention_filter}
                     """, params)
                     
             # If filter only has query (no categories)
             elif filter_config.get("query"):
                 query = filter_config["query"].lower()
-                cursor = conn.execute("""
+                cursor = conn.execute(f"""
                     SELECT COUNT(*) as count
                     FROM articles a
                     LEFT JOIN article_status s ON a.id = s.article_id
                     WHERE (LOWER(a.title) LIKE ? OR LOWER(a.authors) LIKE ? OR LOWER(a.summary) LIKE ?)
                     AND (s.is_viewed IS NULL OR s.is_viewed = 0)
+                    AND {retention_filter}
                 """, (f'%{query}%', f'%{query}%', f'%{query}%'))
             else:
                 return 0
                 
             return cursor.fetchone()['count']
+    
+
     
     # Tag management methods
     
@@ -560,16 +615,29 @@ class ArticleDatabase:
             return [dict(row) for row in cursor.fetchall()]
     
     def add_article_tag(self, article_id: str, tag_name: str) -> bool:
-        """Associate a tag with an article. Returns True if added."""
+        """Associate a tag with an article. Returns True if added.
+        Automatically marks the article as saved when a tag is added."""
         tag_id = self.add_tag(tag_name)
         now = datetime.now().isoformat()
         
         with self.get_connection() as conn:
             try:
+                # Insert the tag relationship
                 conn.execute("""
                     INSERT INTO article_tags (article_id, tag_id, created_at)
                     VALUES (?, ?, ?)
                 """, (article_id, tag_id, now))
+                
+                # Automatically mark article as saved when adding a tag
+                # Do this within the same transaction to avoid database locks
+                conn.execute("""
+                    INSERT OR REPLACE INTO article_status (article_id, is_saved, is_viewed, saved_at, viewed_at)
+                    VALUES (?, 1, 
+                            COALESCE((SELECT is_viewed FROM article_status WHERE article_id = ?), 0),
+                            ?,
+                            (SELECT viewed_at FROM article_status WHERE article_id = ?))
+                """, (article_id, article_id, now, article_id))
+                
                 return True
             except sqlite3.IntegrityError:
                 # Relationship already exists
@@ -606,6 +674,7 @@ class ArticleDatabase:
                        1 as has_tags
                 FROM articles a
                 LEFT JOIN article_status s ON a.id = s.article_id
+
                 INNER JOIN article_tags at ON a.id = at.article_id
                 INNER JOIN tags t ON at.tag_id = t.id
                 WHERE t.name = ?
@@ -635,6 +704,55 @@ class ArticleDatabase:
             """)
             return cursor.rowcount
     
+    def cleanup_old_unsaved_articles(self, retention_days: int) -> int:
+        """Remove articles that are older than retention period AND not saved. Returns number of articles removed."""
+        from datetime import datetime, timedelta
+        
+        cutoff_date = (datetime.now() - timedelta(days=retention_days)).isoformat()
+        
+        with self.get_connection() as conn:
+            # First, get the IDs of articles to be deleted for cleanup of related data
+            cursor = conn.execute("""
+                SELECT a.id 
+                FROM articles a
+                LEFT JOIN article_status s ON a.id = s.article_id
+                WHERE a.published_date < ? 
+                AND (s.is_saved IS NULL OR s.is_saved = 0)
+            """, (cutoff_date,))
+            
+            article_ids_to_delete = [row['id'] for row in cursor.fetchall()]
+            
+            if not article_ids_to_delete:
+                return 0
+            
+            # Delete related data first (to maintain referential integrity)
+            placeholders = ','.join('?' * len(article_ids_to_delete))
+            
+            # Delete article tags
+            conn.execute(f"""
+                DELETE FROM article_tags 
+                WHERE article_id IN ({placeholders})
+            """, article_ids_to_delete)
+            
+            # Delete article status
+            conn.execute(f"""
+                DELETE FROM article_status 
+                WHERE article_id IN ({placeholders})
+            """, article_ids_to_delete)
+            
+            # Delete articles
+            cursor = conn.execute(f"""
+                DELETE FROM articles 
+                WHERE id IN ({placeholders})
+            """, article_ids_to_delete)
+            
+            deleted_count = cursor.rowcount
+            
+            # Clean up orphaned tags after article deletion
+            self.cleanup_orphan_tags()
+            
+            return deleted_count
+    
     def article_has_tags(self, article_id: str) -> bool:
         """Check if an article has any tags."""
         with self.get_connection() as conn:
@@ -643,16 +761,34 @@ class ArticleDatabase:
             """, (article_id,))
             return cursor.fetchone() is not None
     
+
+    
     # Notes management methods
     
     def set_notes_path(self, article_id: str, path: str) -> bool:
-        """Set the notes file path for an article."""
+        """Set the notes file path for an article.
+        Automatically marks the article as saved when notes are added."""
+        now = datetime.now().isoformat()
+        
         with self.get_connection() as conn:
+            # Update the notes path
             cursor = conn.execute("""
                 UPDATE articles 
                 SET notes_file_path = ?
                 WHERE id = ?
             """, (path, article_id))
+            
+            # Automatically mark article as saved when adding notes
+            # Do this within the same transaction to avoid database locks
+            if cursor.rowcount > 0:
+                conn.execute("""
+                    INSERT OR REPLACE INTO article_status (article_id, is_saved, is_viewed, saved_at, viewed_at)
+                    VALUES (?, 1, 
+                            COALESCE((SELECT is_viewed FROM article_status WHERE article_id = ?), 0),
+                            ?,
+                            (SELECT viewed_at FROM article_status WHERE article_id = ?))
+                """, (article_id, article_id, now, article_id))
+            
             return cursor.rowcount > 0
 
     def get_notes_path(self, article_id: str) -> Optional[str]:

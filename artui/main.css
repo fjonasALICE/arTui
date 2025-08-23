@@ -33,6 +33,33 @@ ArxivReader {
     text-style: bold;
 }
 
+.sub_title {
+    content-align: left middle;
+    width: 100%;
+    margin: 1 0 0 1;
+    text-style: bold;
+    color: $text-muted;
+    padding-left: 1;
+}
+
+.section_container {
+    width: 100%;
+    margin: 0 0 1 0;
+    border: solid $primary;
+    background: $background;
+    padding: 1;
+}
+
+.section_title_header {
+    content-align: center middle;
+    width: 100%;
+    margin: 1 0 0 0;
+    text-style: bold;
+    color: $primary;
+}
+
+
+
 #right_pane {
     layout: vertical;
     width: 1fr;
@@ -350,6 +377,20 @@ NotesPopupScreen {
 #categories_container {
     padding-top: 0;
     padding-bottom: 1;
+}
+
+/* Ensure ListViews in sidebar can scroll when they get too long */
+#filters_list,
+#categories_list,
+#tags_list {
+    max-height: 10;
+    overflow-y: auto;
+}
+
+#feed_articles_list,
+#library_articles_list {
+    max-height: 8;
+    overflow-y: auto;
 }
 
 AdvancedSearchPopupScreen {

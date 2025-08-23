@@ -11,6 +11,7 @@ class ConfigManager:
     """Manages configuration loading and default values for ArTui."""
     
     DEFAULT_CONFIG = {
+        "feed_retention_days": 30,  # Articles older than this are hidden from feed views unless unread
         "categories": {
             "HEP Experiments": "hep-ex",
             "HEP Theory": "hep-th", 

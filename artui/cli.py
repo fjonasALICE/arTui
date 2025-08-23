@@ -133,6 +133,17 @@ def cmd_fetch(args) -> int:
         if migration_stats["saved_migrated"] > 0 or migration_stats["viewed_migrated"] > 0:
             print(f"Migrated {migration_stats['saved_migrated']} saved and {migration_stats['viewed_migrated']} viewed articles")
         
+        # Run cleanup routine to remove old unsaved articles
+        try:
+            config = config_manager.get_config()
+            retention_days = config.get("feed_retention_days", 30)
+            deleted_count = db.cleanup_old_unsaved_articles(retention_days)
+            
+            if deleted_count > 0:
+                print(f"Cleanup: Removed {deleted_count} old unsaved articles (older than {retention_days} days)")
+        except Exception as e:
+            print(f"Warning: Cleanup routine failed: {e}")
+        
         # Fetch articles
         if args.recent:
             results = fetcher.fetch_recent_articles(days=args.recent)

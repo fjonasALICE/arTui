@@ -57,6 +57,7 @@ class ArxivReaderApp(App):
         ("r", "refresh_articles", "Refresh"),
         ("i", "show_inspire_citation", "Show INSPIRE Citation"),
         ("t", "manage_tags", "Manage Tags"),
+
         ("n", "manage_notes", "Notes"),
         ("x", "mark_all_read", "Mark All Read"),
         ("q", "quit", "Quit"),
@@ -92,6 +93,9 @@ class ArxivReaderApp(App):
         migration_stats = self.db.migrate_from_text_files()
         if migration_stats["saved_migrated"] > 0 or migration_stats["viewed_migrated"] > 0:
             print(f"Migrated {migration_stats['saved_migrated']} saved and {migration_stats['viewed_migrated']} viewed articles")
+        
+        # Run cleanup routine to remove old unsaved articles
+        self._run_cleanup_routine()
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -124,66 +128,79 @@ class ArxivReaderApp(App):
         unread_text = f"Unread ({unread_count})" if unread_count > 0 else "Unread"
         
         saved_unread_count = self.db.get_unread_saved_count()
-        saved_text = f"Saved Articles ({saved_unread_count})" if saved_unread_count > 0 else "Saved Articles"
+        saved_text = f"Saved ({saved_unread_count})" if saved_unread_count > 0 else "Saved"
         
-        notes_unread_count = self.db.get_unread_count_with_notes()
-        notes_text = f"Notes ({notes_unread_count})" if notes_unread_count > 0 else "Notes"
-        
-        yield Static("My Vault", classes="pane_title")
-        yield ListView(
-            ListItem(Static("All articles"), id="all_articles_filter"),
-            ListItem(Static(unread_text), id="unread_articles_filter"),
-            ListItem(Static(saved_text), id="saved_articles_filter"),
-            ListItem(Static(notes_text), id="notes_articles_filter"),
-            id="saved_articles_list",
-        )
+        # Feed section
+        yield Static("Feed", classes="section_title_header")
+        with Vertical(id="feed_container", classes="section_container"):
+            yield ListView(
+                ListItem(Static("All articles"), id="all_articles_filter"),
+                ListItem(Static(unread_text), id="unread_articles_filter"),
+                id="feed_articles_list",
+            )
 
-        # Tags section
-        with Vertical(id="tags_container"):
-            all_tags = self.db.get_all_tags()
-            if all_tags:
-                yield Static("Tags", classes="pane_title")
-                tag_items = []
-                for tag in all_tags:
-                    unread_count = self.db.get_unread_count_by_tag(tag['name'])
-                    tag_text = f"{tag['name']} ({unread_count})" if unread_count > 0 else tag['name']
-                    sanitized_tag_name = re.sub(r'[^a-zA-Z0-9_-]', '_', tag['name'])
-                    
-                    tag_item = ListItem(Static(tag_text), id=f"tag_{sanitized_tag_name}")
-                    tag_item.original_tag_name = tag['name']
-                    tag_items.append(tag_item)
-                yield ListView(*tag_items, id="tags_list")
+            # Filters subsection under Feed
+            config = self.config_manager.get_config()
+            retention_days = config.get("feed_retention_days", 30)
+            filters = config.get("filters", {})
+            if filters:
+                with Vertical(id="filters_container"):
+                    yield Static("Filters", classes="pane_title sub_title")
+                    filter_items = []
+                    for name, filter_config in filters.items():
+                        unread_count = self.db.get_unread_count_by_filter(filter_config, retention_days)
+                        filter_text = f"{name} ({unread_count})" if unread_count > 0 else name
+                        
+                        filter_items.append(
+                            ListItem(Static(filter_text), id=f"filter_{name.replace(' ', '_')}")
+                        )
+                    yield ListView(*filter_items, id="filters_list")
 
-        # Filters section
-        config = self.config_manager.get_config()
-        filters = config.get("filters", {})
-        if filters:
-            with Vertical(id="filters_container"):
-                yield Static("Filters", classes="pane_title")
-                filter_items = []
-                for name, filter_config in filters.items():
-                    unread_count = self.db.get_unread_count_by_filter(filter_config)
-                    filter_text = f"{name} ({unread_count})" if unread_count > 0 else name
-                    
-                    filter_items.append(
-                        ListItem(Static(filter_text), id=f"filter_{name.replace(' ', '_')}")
-                    )
-                yield ListView(*filter_items, id="filters_list")
+            # Categories subsection under Feed
+            categories = config.get("categories", {})
+            if categories:
+                with Vertical(id="categories_container"):
+                    yield Static("Categories", classes="pane_title sub_title")
+                    category_items = []
+                    for name, code in categories.items():
+                        unread_count = self.db.get_unread_count_by_category(code, retention_days)
+                        category_text = f"{name} ({unread_count})" if unread_count > 0 else name
+                        
+                        category_items.append(
+                            ListItem(Static(category_text), id=f"cat_{code}")
+                        )
+                    yield ListView(*category_items, id="categories_list")
 
-        # Categories section
-        categories = config.get("categories", {})
-        if categories:
-            with Vertical(id="categories_container"):
-                yield Static("Categories", classes="pane_title")
-                category_items = []
-                for name, code in categories.items():
-                    unread_count = self.db.get_unread_count_by_category(code)
-                    category_text = f"{name} ({unread_count})" if unread_count > 0 else name
-                    
-                    category_items.append(
-                        ListItem(Static(category_text), id=f"cat_{code}")
-                    )
-                yield ListView(*category_items, id="categories_list")
+        # Library section
+        yield Static("Library", classes="section_title_header")
+        with Vertical(id="library_container", classes="section_container"):
+            # Get notes count for display
+            notes_unread_count = self.db.get_unread_count_with_notes()
+            notes_text = f"Notes ({notes_unread_count})" if notes_unread_count > 0 else "Notes"
+            
+            yield ListView(
+                ListItem(Static(saved_text), id="saved_articles_filter"),
+                ListItem(Static(notes_text), id="notes_articles_filter"),
+                id="library_articles_list",
+            )
+
+
+
+            # Tags subsection under Library
+            with Vertical(id="tags_container"):
+                all_tags = self.db.get_all_tags()
+                if all_tags:
+                    yield Static("Tags", classes="pane_title sub_title")
+                    tag_items = []
+                    for tag in all_tags:
+                        unread_count = self.db.get_unread_count_by_tag(tag['name'])
+                        tag_text = f"{tag['name']} ({unread_count})" if unread_count > 0 else tag['name']
+                        sanitized_tag_name = re.sub(r'[^a-zA-Z0-9_-]', '_', tag['name'])
+                        
+                        tag_item = ListItem(Static(tag_text), id=f"tag_{sanitized_tag_name}")
+                        tag_item.original_tag_name = tag['name']
+                        tag_items.append(tag_item)
+                    yield ListView(*tag_items, id="tags_list")
 
     def on_mount(self) -> None:
         """Call after the app is mounted."""
@@ -197,7 +214,7 @@ class ArxivReaderApp(App):
             list_view.index = None
         
         try:
-            self.query_one("#saved_articles_list", ListView).index = 1  # Select second item (Unread)
+            self.query_one("#feed_articles_list", ListView).index = 1  # Select second item (Unread)
             self.load_articles()
         except Exception:
             pass  # List view or item not found
@@ -218,6 +235,8 @@ class ArxivReaderApp(App):
         for list_view in self.query(ListView):
             if list_view is not event.list_view:
                 list_view.index = None
+
+
 
         item = event.item
         widget_id = item.id
@@ -256,12 +275,30 @@ class ArxivReaderApp(App):
             
             self.load_articles()
 
+
+
+    def _run_cleanup_routine(self):
+        """Run cleanup routine to remove old unsaved articles."""
+        try:
+            config = self.config_manager.get_config()
+            retention_days = config.get("feed_retention_days", 30)
+            
+            deleted_count = self.db.cleanup_old_unsaved_articles(retention_days)
+            
+            if deleted_count > 0:
+                print(f"Cleanup: Removed {deleted_count} old unsaved articles (older than {retention_days} days)")
+                
+        except Exception as e:
+            # Don't let cleanup errors prevent app startup
+            print(f"Warning: Cleanup routine failed: {e}")
+
     def _parse_selection_id(self, widget_id: str, item) -> Optional[str]:
         """Parse widget ID to determine selection."""
         if widget_id.startswith("filter_"):
             return widget_id[len("filter_"):].replace("_", " ")
         elif widget_id.startswith("cat_"):
             return widget_id[len("cat_"):]
+
         elif widget_id.startswith("tag_"):
             if hasattr(item, 'original_tag_name'):
                 return f"tag_{item.original_tag_name}"
@@ -564,7 +601,9 @@ class ArxivReaderApp(App):
     def _get_db_results(self) -> List[Dict[str, Any]]:
         """Get database results based on current selection and query."""
         config = self.config_manager.get_config()
+        retention_days = config.get("feed_retention_days", 30)
         
+        # Library selections (no feed retention applied)
         if self.current_selection == "saved_articles_filter":
             if self.current_query:
                 saved_results = self.db.get_saved_articles()
@@ -572,6 +611,7 @@ class ArxivReaderApp(App):
             else:
                 return self.db.get_saved_articles()
         
+        # Feed selections (apply feed retention)
         elif self.current_selection == "unread_articles_filter":
             if self.current_query:
                 unread_results = self.db.get_unread_articles()
@@ -581,12 +621,12 @@ class ArxivReaderApp(App):
         
         elif self.current_selection == "all_articles_filter":
             if self.current_query:
-                db_results = self.db.search_articles(self.current_query)
-                self.call_from_thread(self.notify, f"Searched all articles with query: {self.current_query}, found {len(db_results)} results", timeout=3)
+                db_results = self.db.search_articles(self.current_query, retention_days)
+                self.call_from_thread(self.notify, f"Searched feed articles with query: {self.current_query}, found {len(db_results)} results", timeout=3)
                 return db_results
             else:
-                db_results = self.db.get_all_articles()
-                self.call_from_thread(self.notify, f"Loaded {len(db_results)} total articles", timeout=3)
+                db_results = self.db.get_all_articles(retention_days)
+                self.call_from_thread(self.notify, f"Loaded {len(db_results)} feed articles (retention: {retention_days} days)", timeout=3)
                 return db_results
         
         elif self.current_selection == "notes_articles_filter":
@@ -597,10 +637,10 @@ class ArxivReaderApp(App):
                 return self.db.get_articles_with_notes()
         
         elif self.current_query and not self.current_selection:
-            return self.db.search_articles(self.current_query)
+            return self.db.search_articles(self.current_query, retention_days)
         
         elif self.current_selection:
-            return self._handle_special_selections(config)
+            return self._handle_special_selections(config, retention_days)
         
         return []
 
@@ -614,7 +654,7 @@ class ArxivReaderApp(App):
                 search_lower in result['authors'].lower())
         ]
 
-    def _handle_special_selections(self, config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _handle_special_selections(self, config: Dict[str, Any], retention_days: int) -> List[Dict[str, Any]]:
         """Handle special selections like tags, filters, and categories."""
         if self.current_selection.startswith("tag_"):
             tag_name = self.current_selection[4:]  # Remove "tag_" prefix
@@ -634,30 +674,30 @@ class ArxivReaderApp(App):
                 combined_query = search_query
                 if filter_query:
                     combined_query = f"{combined_query} {filter_query}".strip()
-                return self.db.search_articles_in_categories(combined_query, filter_categories)
+                return self.db.search_articles_in_categories(combined_query, filter_categories, retention_days)
             elif search_query or filter_query:
                 combined_query = search_query or filter_query
-                return self.db.search_articles(combined_query)
+                return self.db.search_articles(combined_query, retention_days)
             elif filter_categories:
-                return self._get_articles_from_categories(filter_categories)
+                return self._get_articles_from_categories(filter_categories, retention_days)
             else:
                 return []
 
         elif self.current_selection in config.get("categories", {}).values():
             if self.current_query:
-                category_results = self.db.get_articles_by_category(self.current_selection)
+                category_results = self.db.get_articles_by_category(self.current_selection, retention_days)
                 return self._filter_results_by_query(category_results)
             else:
-                self.call_from_thread(self.notify, f"Fetching articles for category: {self.current_selection}")
-                return self.db.get_articles_by_category(self.current_selection)
+                self.call_from_thread(self.notify, f"Fetching feed articles for category: {self.current_selection} (retention: {retention_days} days)")
+                return self.db.get_articles_by_category(self.current_selection, retention_days)
         
         return []
 
-    def _get_articles_from_categories(self, filter_categories: List[str]) -> List[Dict[str, Any]]:
+    def _get_articles_from_categories(self, filter_categories: List[str], retention_days: int) -> List[Dict[str, Any]]:
         """Get articles from multiple categories and remove duplicates."""
         all_results = []
         for cat in filter_categories:
-            cat_results = self.db.get_articles_by_category(cat)
+            cat_results = self.db.get_articles_by_category(cat, retention_days)
             all_results.extend(cat_results)
         
         # Remove duplicates and sort by published date
@@ -725,6 +765,8 @@ class ArxivReaderApp(App):
         if tags:
             tags_str = ", ".join(tags)
             tags_display = f"\n\n[bold]Tags:[/] {tags_str}"
+        
+
 
         notes_display = ""
         if hasattr(article, 'has_note') and article.has_note:
@@ -943,8 +985,7 @@ class ArxivReaderApp(App):
         
         options = [
             ("Unread", "special:unread_articles_filter"),
-            ("Saved Articles", "special:saved_articles_filter"),
-            ("Notes", "special:notes_articles_filter")
+            ("Saved", "special:saved_articles_filter")
         ]
 
         filter_options = [
@@ -990,6 +1031,8 @@ class ArxivReaderApp(App):
             self.show_tag_popup(selected_article)
         else:
             self.notify("No article selected", severity="warning")
+
+
 
     def action_manage_notes(self) -> None:
         """Open the notes popup for the currently selected article."""
@@ -1039,7 +1082,17 @@ class ArxivReaderApp(App):
     def notes_popup_callback(self, result: Optional[str]) -> None:
         """Handle the result from the notes popup."""
         if result is not None:
-            self.notify("Notes saved successfully!", timeout=2)
+            # When notes are saved, update the UI to reflect the saved status
+            # (the article is automatically marked as saved in set_notes_path)
+            table = self.query_one("#results_table", ArticleTableWidget)
+            cursor_row = table.cursor_row
+            if cursor_row is not None:
+                selected_article = table.get_article_at_row(cursor_row)
+                if selected_article is not None:
+                    selected_article.is_saved = True
+                    self._update_table_row_status(cursor_row, selected_article)
+            
+            self.notify("Notes saved successfully! Article automatically marked as saved.", timeout=3)
         else:
             self.notify("Notes closed without saving.", timeout=2)
 
@@ -1053,6 +1106,8 @@ class ArxivReaderApp(App):
             TagPopupScreen(article_id, article.title, existing_tags, all_tags),
             self.tag_popup_callback
         )
+
+
 
     def tag_popup_callback(self, result) -> None:
         """Handle the result from the tag popup."""
@@ -1083,9 +1138,11 @@ class ArxivReaderApp(App):
             for tag_name in tags_to_remove:
                 self.db.remove_article_tag(article_id, tag_name)
             
-            # Add tags
+            # Add tags (this automatically marks article as saved)
+            tags_added = False
             for tag_name in tags_to_add:
-                self.db.add_article_tag(article_id, tag_name)
+                if self.db.add_article_tag(article_id, tag_name):
+                    tags_added = True
             
             # Cleanup any orphan tags
             if tags_to_remove:
@@ -1093,11 +1150,15 @@ class ArxivReaderApp(App):
                 if removed_count > 0:
                     self.notify(f"Removed {removed_count} unused tag(s).", timeout=3)
 
-            # Update article's has_tags status
+            # Update article's has_tags and saved status
             if tags_to_add or tags_to_remove:
                 selected_article.has_tags = self.db.article_has_tags(article_id)
                 
-                # Update the table row status to show/hide "t" indicator
+                # If tags were added, the article is now saved (done automatically in add_article_tag)
+                if tags_added:
+                    selected_article.is_saved = True
+                
+                # Update the table row status to show/hide "t" and "s" indicators
                 self._update_table_row_status(cursor_row, selected_article)
                 
                 # Reload left panel to show new tags if any were created
@@ -1107,7 +1168,12 @@ class ArxivReaderApp(App):
                 self.refresh_left_panel_counts()
             
             if tags_to_add or tags_to_remove:
-                self.notify(f"Updated tags for {article_id}")
+                if tags_added:
+                    self.notify(f"Updated tags for {article_id}. Article automatically marked as saved.", timeout=3)
+                else:
+                    self.notify(f"Updated tags for {article_id}")
+
+
 
     def bibtex_popup_callback(self, result) -> None:
         """Handle the result from the bibtex popup."""
@@ -1350,7 +1416,10 @@ class ArxivReaderApp(App):
 
         if value_type == "special":
             self.current_selection = value
-            target_list_view_id = "saved_articles_list"
+            if value == "saved_articles_filter":
+                target_list_view_id = "library_articles_list"
+            else:
+                target_list_view_id = "feed_articles_list"
             target_item_id = value
         elif value_type == "filter":
             self.current_selection = value
@@ -1404,6 +1473,7 @@ class ArxivReaderApp(App):
                         title = "Saved Articles"
                     elif self.current_selection == "notes_articles_filter":
                         title = "Articles with Notes"
+
                     elif self.current_selection.startswith("tag_"):
                         tag_name = self.current_selection[4:]  # Remove "tag_" prefix
                         title = f"Tag: {tag_name}"
@@ -1451,7 +1521,7 @@ class ArxivReaderApp(App):
             
             # Update Saved Articles count
             saved_unread_count = self.db.get_unread_saved_count()
-            saved_text = f"Saved Articles ({saved_unread_count})" if saved_unread_count > 0 else "Saved Articles"
+            saved_text = f"Saved ({saved_unread_count})" if saved_unread_count > 0 else "Saved"
             try:
                 saved_item = self.query_one("#saved_articles_filter", ListItem)
                 saved_static = saved_item.query_one(Static)
@@ -1469,6 +1539,7 @@ class ArxivReaderApp(App):
             except Exception:
                 pass
             
+
             self._update_tag_counts()
             self._update_filter_counts()
             self._update_category_counts()
@@ -1476,6 +1547,10 @@ class ArxivReaderApp(App):
         except Exception as e:
             # Don't let count refresh errors break the app
             pass
+
+
+
+
 
     def _update_tag_counts(self):
         """Update tag counts in the left panel."""
@@ -1496,9 +1571,10 @@ class ArxivReaderApp(App):
     def _update_filter_counts(self):
         """Update filter counts in the left panel."""
         config = self.config_manager.get_config()
+        retention_days = config.get("feed_retention_days", 30)
         filters = config.get("filters", {})
         for name, filter_config in filters.items():
-            unread_count = self.db.get_unread_count_by_filter(filter_config)
+            unread_count = self.db.get_unread_count_by_filter(filter_config, retention_days)
             filter_text = f"{name} ({unread_count})" if unread_count > 0 else name
             
             filter_widget_id = f"filter_{name.replace(' ', '_')}"
@@ -1512,9 +1588,10 @@ class ArxivReaderApp(App):
     def _update_category_counts(self):
         """Update category counts in the left panel."""
         config = self.config_manager.get_config()
+        retention_days = config.get("feed_retention_days", 30)
         categories = config.get("categories", {})
         for name, code in categories.items():
-            unread_count = self.db.get_unread_count_by_category(code)
+            unread_count = self.db.get_unread_count_by_category(code, retention_days)
             category_text = f"{name} ({unread_count})" if unread_count > 0 else name
             
             try:
@@ -1610,14 +1687,22 @@ class ArxivReaderApp(App):
         
         self.notify("Tags updated successfully!", timeout=3)
 
+
+
     def update_header_status(self) -> None:
-        """Update the header status with article count and last refresh time."""
+        """Update the header status with feed and library counts and last refresh time."""
         try:
             header_status = self.query_one("#header_status", Static)
             
-            # Get total article count from database
-            total_articles = self.db.get_all_articles_count()
-            status_text = f"Articles in Database: {total_articles}"
+            # Get retention period from config
+            config = self.config_manager.get_config()
+            retention_days = config.get("feed_retention_days", 30)
+            
+            # Get feed and library counts
+            feed_count = self.db.get_feed_articles_count(retention_days)
+            library_count = self.db.get_saved_articles_count()
+            
+            status_text = f"Feed: {feed_count} articles  Library: {library_count} articles"
             
             # Add last refresh time if available
             if self.last_refresh_time:

@@ -83,6 +83,8 @@ class ArticleTableWidget(DataTable):
             else:
                 status_parts.append("●")
         
+
+        
         # Add tag indicator (only for local database results)
         if not is_global_search and hasattr(article, 'has_tags') and article.has_tags:
             status_parts.append("[blue]t[/blue]")

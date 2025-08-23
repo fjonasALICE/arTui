@@ -126,6 +126,9 @@ artui userdir migrate
 Create or edit `config.yaml` in your user data directory to configure categories and filters:
 
 ```yaml
+# Feed retention period in days - articles older than this are hidden from feed views unless unread
+feed_retention_days: 30
+
 categories:
   # Display Name: arXiv category code
   "Machine Learning": "cs.LG"

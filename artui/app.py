@@ -1075,24 +1075,46 @@ class ArxivReaderApp(App):
                 self._update_table_row_status(table.cursor_row, article)
 
         self.push_screen(
-            NotesPopupScreen(notes_path_str, article.title), 
+            NotesPopupScreen(notes_path_str, article.title, article_id), 
             self.notes_popup_callback
         )
 
-    def notes_popup_callback(self, result: Optional[str]) -> None:
+    def notes_popup_callback(self, result) -> None:
         """Handle the result from the notes popup."""
         if result is not None:
-            # When notes are saved, update the UI to reflect the saved status
-            # (the article is automatically marked as saved in set_notes_path)
-            table = self.query_one("#results_table", ArticleTableWidget)
-            cursor_row = table.cursor_row
-            if cursor_row is not None:
-                selected_article = table.get_article_at_row(cursor_row)
-                if selected_article is not None:
-                    selected_article.is_saved = True
-                    self._update_table_row_status(cursor_row, selected_article)
-            
-            self.notify("Notes saved successfully! Article automatically marked as saved.", timeout=3)
+            # Handle deletion result (tuple)
+            if isinstance(result, tuple) and len(result) == 2 and result[0] == "deleted":
+                _, article_id = result
+                if article_id:
+                    # Clear the notes path from database
+                    self.db.clear_notes_path(article_id)
+                    
+                    # Update the UI to reflect the deletion
+                    table = self.query_one("#results_table", ArticleTableWidget)
+                    cursor_row = table.cursor_row
+                    if cursor_row is not None:
+                        selected_article = table.get_article_at_row(cursor_row)
+                        if selected_article is not None:
+                            selected_article.notes_file_path = None
+                            selected_article.has_note = False
+                            self._update_table_row_status(cursor_row, selected_article)
+                    
+                    self.notify("Notes deleted successfully!", timeout=3)
+                else:
+                    self.notify("Notes file deleted, but could not update database.", severity="warning", timeout=3)
+            # Handle save result (string)
+            elif isinstance(result, str):
+                # When notes are saved, update the UI to reflect the saved status
+                # (the article is automatically marked as saved in set_notes_path)
+                table = self.query_one("#results_table", ArticleTableWidget)
+                cursor_row = table.cursor_row
+                if cursor_row is not None:
+                    selected_article = table.get_article_at_row(cursor_row)
+                    if selected_article is not None:
+                        selected_article.is_saved = True
+                        self._update_table_row_status(cursor_row, selected_article)
+                
+                self.notify("Notes saved successfully! Article automatically marked as saved.", timeout=3)
         else:
             self.notify("Notes closed without saving.", timeout=2)
 
@@ -1466,11 +1488,11 @@ class ArxivReaderApp(App):
                 
                 if self.current_selection:
                     if self.current_selection == "all_articles_filter":
-                        title = "All Articles"
+                        title = "Feed: All Articles"
                     elif self.current_selection == "unread_articles_filter":
-                        title = "Unread Articles"
+                        title = "Feed: Unread Articles"
                     elif self.current_selection == "saved_articles_filter":
-                        title = "Saved Articles"
+                        title = "Library: Saved Articles"
                     elif self.current_selection == "notes_articles_filter":
                         title = "Articles with Notes"
 

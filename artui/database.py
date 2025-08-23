@@ -797,6 +797,16 @@ class ArticleDatabase:
             cursor = conn.execute("SELECT notes_file_path FROM articles WHERE id = ?", (article_id,))
             row = cursor.fetchone()
             return row['notes_file_path'] if row else None
+
+    def clear_notes_path(self, article_id: str) -> bool:
+        """Clear the notes file path for an article."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                UPDATE articles 
+                SET notes_file_path = NULL
+                WHERE id = ?
+            """, (article_id,))
+            return cursor.rowcount > 0
     
     # Category fetch tracking methods
     

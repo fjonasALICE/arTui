@@ -271,17 +271,14 @@ class TagPopupScreen(ModalScreen):
         if event.key == "escape":
             self.dismiss()
 
-
-
-
-
 class NotesPopupScreen(ModalScreen):
     """Screen to display and edit notes for an article."""
 
-    def __init__(self, notes_path: str, article_title: str, *args, **kwargs):
+    def __init__(self, notes_path: str, article_title: str, article_id: str = None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.notes_path = notes_path
         self.article_title = article_title
+        self.article_id = article_id
         self.original_content = ""
 
     def compose(self):
@@ -295,6 +292,7 @@ class NotesPopupScreen(ModalScreen):
             TextArea(self.original_content, id="notes_text_area", language="markdown", theme="monokai"),
             Horizontal(
                 Button("Save", variant="primary", id="notes_save_button"),
+                Button("Delete", variant="error", id="notes_delete_button"),
                 Button("Close", id="notes_close_button"),
                 id="notes_buttons"
             ),
@@ -312,6 +310,22 @@ class NotesPopupScreen(ModalScreen):
             with open(self.notes_path, "w") as f:
                 f.write(new_content)
             self.dismiss(new_content)
+        elif event.button.id == "notes_delete_button":
+            self._delete_notes()
+
+    def _delete_notes(self) -> None:
+        """Delete the notes file and dismiss the popup."""
+        try:
+            if os.path.exists(self.notes_path):
+                os.remove(self.notes_path)
+                self.notify(f"Notes file deleted successfully", timeout=3)
+                # Return tuple with deletion status and article ID
+                self.dismiss(("deleted", self.article_id))
+            else:
+                self.notify("Notes file does not exist", severity="warning", timeout=3)
+                self.dismiss(None)
+        except Exception as e:
+            self.notify(f"Error deleting notes file: {str(e)}", severity="error", timeout=5)
 
     def on_key(self, event) -> None:
         if event.key == "escape":

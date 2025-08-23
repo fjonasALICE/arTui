@@ -368,8 +368,17 @@ NotesPopupScreen {
     margin-right: 1;
 }
 
+#notes_delete_button {
+    width: 1fr;
+    margin-right: 1;
+}
+
 #notes_close_button {
     width: 1fr;
+}
+
+#library_container {
+    height: 1fr;
 }
 
 #tags_container,

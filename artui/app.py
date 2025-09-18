@@ -1183,6 +1183,7 @@ class ArxivReaderApp(App):
                 # Update the table row status to show/hide "t" and "s" indicators
                 self._update_table_row_status(cursor_row, selected_article)
                 
+                
                 # Reload left panel to show new tags if any were created
                 self.call_later(self.reload_left_panel)
                 
@@ -1542,8 +1543,9 @@ class ArxivReaderApp(App):
                 pass
             
             # Update Saved Articles count
-            saved_unread_count = self.db.get_unread_saved_count()
-            saved_text = f"Saved ({saved_unread_count})" if saved_unread_count > 0 else "Saved"
+            # saved_unread_count = self.db.get_unread_saved_count()
+            saved_count = self.db.get_saved_articles_count()
+            saved_text = f"Saved ({saved_count})" if saved_count > 0 else "Saved"
             try:
                 saved_item = self.query_one("#saved_articles_filter", ListItem)
                 saved_static = saved_item.query_one(Static)
@@ -1552,8 +1554,9 @@ class ArxivReaderApp(App):
                 pass
             
             # Update Notes count
-            notes_unread_count = self.db.get_unread_count_with_notes()
-            notes_text = f"Notes ({notes_unread_count})" if notes_unread_count > 0 else "Notes"
+            # notes_unread_count = self.db.get_unread_count_with_notes()
+            notes_count = self.db.get_articles_with_notes_count()
+            notes_text = f"Notes ({notes_count})" if notes_count > 0 else "Notes"
             try:
                 notes_item = self.query_one("#notes_articles_filter", ListItem)
                 notes_static = notes_item.query_one(Static)
@@ -1693,8 +1696,8 @@ class ArxivReaderApp(App):
             # Create tags list for the first time
             tag_items = []
             for tag in all_tags:
-                unread_count = self.db.get_unread_count_by_tag(tag['name'])
-                tag_text = f"{tag['name']} ({unread_count})" if unread_count > 0 else tag['name']
+                tag_count = self.db.get_count_by_tag(tag['name'])
+                tag_text = f"{tag['name']} ({tag_count})" if tag_count > 0 else tag['name']
                 sanitized_tag_name = re.sub(r'[^a-zA-Z0-9_-]', '_', tag['name'])
                 
                 tag_item = ListItem(Static(tag_text), id=f"tag_{sanitized_tag_name}")

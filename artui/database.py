@@ -456,7 +456,13 @@ class ArticleDatabase:
         with self.get_connection() as conn:
             cursor = conn.execute("SELECT COUNT(*) as count FROM articles")
             return cursor.fetchone()['count']
-    
+    def get_articles_with_notes_count(self) -> int:
+        """Get number of articles with notes."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count FROM articles WHERE notes_file_path IS NOT NULL
+            """)
+            return cursor.fetchone()['count']
     def get_saved_articles_count(self) -> int:
         """Get number of saved articles."""
         with self.get_connection() as conn:
@@ -681,7 +687,18 @@ class ArticleDatabase:
                 ORDER BY a.published_date DESC
             """, (tag_name,))
             return [dict(row) for row in cursor.fetchall()]
-    
+    def get_count_by_tag(self, tag_name: str) -> int:
+        """Get count of all articles for a specific tag, regardless of status."""
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count
+                FROM articles a
+                INNER JOIN article_tags at ON a.id = at.article_id
+                INNER JOIN tags t ON at.tag_id = t.id
+                WHERE t.name = ?
+            """, (tag_name,))
+            return cursor.fetchone()['count']
+  
     def get_unread_count_by_tag(self, tag_name: str) -> int:
         """Get count of unread articles for a specific tag."""
         with self.get_connection() as conn:

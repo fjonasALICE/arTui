@@ -74,6 +74,9 @@ class ArticleTableWidget(DataTable):
         # For global search results, show nothing instead of read/unread status
         if is_global_search:
             status_parts.append(" ")
+            # however still show saved status in case of global search
+            if hasattr(article, 'is_saved') and article.is_saved:
+                status_parts.append("[red]s[/red]")
         else:
             # Use database status information
             if hasattr(article, 'is_saved') and article.is_saved:

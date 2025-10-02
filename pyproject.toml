@@ -60,6 +60,9 @@ artui = "artui.cli:main"
 [tool.setuptools.packages.find]
 include = ["artui*"]
 
+[tool.setuptools.package-data]
+artui = ["*.css", "*.yaml"]
+
 [tool.black]
 line-length = 100
 target-version = ['py38']

@@ -39,7 +39,7 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--user-dir",
         type=str,
-        help="Custom user data directory (default: ~/.artui or $ARTUI_DATA_DIR)"
+        help="Custom user data directory (default: $ARTUI_DATA_DIR or ~/.artui)"
     )
     
     # Subcommands

@@ -166,9 +166,11 @@ class ArxivReaderApp(App):
                         unread_count = self.db.get_unread_count_by_category(code, retention_days)
                         category_text = f"{name} ({unread_count})" if unread_count > 0 else name
                         
-                        category_items.append(
-                            ListItem(Static(category_text), id=f"cat_{code}")
-                        )
+                        # Sanitize category code for use as ID (dots are not allowed)
+                        sanitized_code = re.sub(r'[^a-zA-Z0-9_-]', '_', code)
+                        category_item = ListItem(Static(category_text), id=f"cat_{sanitized_code}")
+                        category_item.original_category_code = code  # Store original code
+                        category_items.append(category_item)
                     yield ListView(*category_items, id="categories_list")
 
         # Library section
@@ -297,8 +299,11 @@ class ArxivReaderApp(App):
         if widget_id.startswith("filter_"):
             return widget_id[len("filter_"):].replace("_", " ")
         elif widget_id.startswith("cat_"):
-            return widget_id[len("cat_"):]
-
+            # Use original category code if stored, otherwise fall back to sanitized ID
+            if hasattr(item, 'original_category_code'):
+                return item.original_category_code
+            else:
+                return widget_id[len("cat_"):]
         elif widget_id.startswith("tag_"):
             if hasattr(item, 'original_tag_name'):
                 return f"tag_{item.original_tag_name}"
@@ -1330,8 +1335,8 @@ class ArxivReaderApp(App):
 
             inspire_link = f"https://inspirehep.net/literature/{inspire_id}"
             
-            # Copy to clipboard
-            pyperclip.copy(bibtex_content)
+            # Copy to clipboard (moved to main thread to avoid event loop issues)
+            self.call_from_thread(self._copy_to_clipboard, bibtex_content)
             
             # Notify user
             self.call_from_thread(
@@ -1340,19 +1345,16 @@ class ArxivReaderApp(App):
                 title="Inspire-HEP",
                 timeout=5
             )
-            # Show the bibtex popup
-            self.call_from_thread(
-                self.push_screen,
-                BibtexPopupScreen(
-                    bibtex_content,
-                    n_citations,
-                    inspire_link,
-                    article.title,
-                    references,
-                    inspire_id
-                ),
-                self.bibtex_popup_callback
-            )
+            # Show the bibtex popup (create screen data and push from main thread)
+            screen_data = {
+                'bibtex_content': bibtex_content,
+                'n_citations': n_citations,
+                'inspire_link': inspire_link,
+                'article_title': article.title,
+                'references': references,
+                'inspire_id': inspire_id
+            }
+            self.call_from_thread(self._push_bibtex_screen, screen_data)
 
         except Exception as e:
             self.call_from_thread(
@@ -1362,6 +1364,28 @@ class ArxivReaderApp(App):
                 severity="error",
                 timeout=5
             )
+    
+    def _copy_to_clipboard(self, content: str) -> None:
+        """Copy content to clipboard. Must be called from main thread."""
+        try:
+            pyperclip.copy(content)
+        except Exception as e:
+            self.notify(f"Failed to copy to clipboard: {str(e)}", severity="error", timeout=3)
+    
+    def _push_bibtex_screen(self, screen_data: dict) -> None:
+        """Push BibtexPopupScreen from main thread. Must be called from main thread."""
+        try:
+            screen = BibtexPopupScreen(
+                screen_data['bibtex_content'],
+                screen_data['n_citations'],
+                screen_data['inspire_link'],
+                screen_data['article_title'],
+                screen_data['references'],
+                screen_data['inspire_id']
+            )
+            self.push_screen(screen, self.bibtex_popup_callback)
+        except Exception as e:
+            self.notify(f"Failed to open BibTeX window: {str(e)}", severity="error", timeout=5)
     
     def advanced_search_callback(self, search_params):
         """Callback for when advanced search is completed."""
@@ -1451,7 +1475,9 @@ class ArxivReaderApp(App):
         elif value_type == "cat":
             self.current_selection = value
             target_list_view_id = "categories_list"
-            target_item_id = f"cat_{value}"
+            # Sanitize category code for ID (dots are not allowed)
+            sanitized_value = re.sub(r'[^a-zA-Z0-9_-]', '_', value)
+            target_item_id = f"cat_{sanitized_value}"
 
         if target_list_view_id and target_item_id:
             try:
@@ -1619,8 +1645,11 @@ class ArxivReaderApp(App):
             unread_count = self.db.get_unread_count_by_category(code, retention_days)
             category_text = f"{name} ({unread_count})" if unread_count > 0 else name
             
+            # Sanitize category code for querying (dots are not allowed in IDs)
+            sanitized_code = re.sub(r'[^a-zA-Z0-9_-]', '_', code)
+            
             try:
-                category_item = self.query_one(f"#cat_{code}", ListItem)
+                category_item = self.query_one(f"#cat_{sanitized_code}", ListItem)
                 category_static = category_item.query_one(Static)
                 category_static.update(category_text)
             except Exception:

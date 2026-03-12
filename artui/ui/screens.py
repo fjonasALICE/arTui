@@ -496,3 +496,88 @@ class AdvancedSearchPopupScreen(ModalScreen):
             # Trigger search on Enter
             search_button = self.query_one("#advanced_search_submit_button")
             search_button.press()
+
+
+class FirstRunPopupScreen(ModalScreen):
+    """Welcome popup shown on the very first startup, prompting the user to configure arTui.
+
+    The popup stays open while the user edits the config in an external editor.
+    Pressing 'Done' signals the app to reload the config and start fetching.
+    """
+
+    def __init__(self, config_path: str, open_callback, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.config_path = config_path
+        self.open_callback = open_callback
+
+    def compose(self):
+        yield Vertical(
+            Static("[bold $primary]Welcome to arTui![/]", id="first_run_title"),
+            Static(
+                "A default configuration file has been created.\n\n"
+                "1. Click [bold]Open Config[/] to edit your arXiv categories.\n"
+                "2. Save the file in your editor.\n"
+                "3. Click [bold]Done[/] to load your config and start fetching.",
+                id="first_run_message",
+            ),
+            Static(
+                f"[bold]Config file:[/] [dim]{self.config_path}[/]",
+                id="first_run_path",
+            ),
+            Static("[bold $primary]How it works[/]", id="first_run_concepts_title"),
+            VerticalScroll(
+                Static(
+                    "[bold]Feed[/]  Your main view. Shows recent arXiv papers (last 7 days) "
+                    "from all subscribed categories. New submissions appear automatically after "
+                    "each fetch. Read articles are tracked and cleaned up after a configurable "
+                    "retention period to keep your feed fresh.",
+                    classes="first_run_concept",
+                ),
+                Static(
+                    "[bold]Categories[/]  arXiv subject areas you want to follow "
+                    "(e.g. [dim]hep-th[/], [dim]cs.AI[/], [dim]astro-ph.HE[/]). "
+                    "Every article that falls under a subscribed category will show up in your feed. "
+                    "Configure them in the config file.",
+                    classes="first_run_concept",
+                ),
+                Static(
+                    "[bold]Filters[/]  Optional keyword rules applied on top of categories. "
+                    "A filter targets one or more categories and keeps only articles whose "
+                    "title or abstract match your criteria — useful for narrowing a broad "
+                    "category to your specific topics of interest.",
+                    classes="first_run_concept",
+                ),
+                Static(
+                    "[bold]Library[/]  Articles you explicitly save are kept here indefinitely. "
+                    "Unlike the feed, saved articles are never auto-removed. "
+                    "Enrich them with custom [bold]tags[/] and [bold]markdown notes[/] "
+                    "for easy organisation and reference.",
+                    classes="first_run_concept",
+                ),
+                Static(
+                    "[bold]Global Search[/]  Search the full arXiv database beyond your subscribed "
+                    "categories. Any article found this way can be added directly to your library.",
+                    classes="first_run_concept",
+                ),
+                id="first_run_concepts_scroll",
+            ),
+            Horizontal(
+                Button("Open Config", variant="default", id="first_run_open_button"),
+                Button("Done — Start Fetching", variant="primary", id="first_run_done_button"),
+                id="first_run_buttons",
+            ),
+            id="first_run_dialog",
+        )
+
+    def on_mount(self) -> None:
+        self.query_one("#first_run_open_button", Button).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "first_run_open_button":
+            self.open_callback()
+        elif event.button.id == "first_run_done_button":
+            self.dismiss(True)
+
+    def on_key(self, event) -> None:
+        if event.key == "escape":
+            self.dismiss(False)

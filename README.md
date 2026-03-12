@@ -17,18 +17,18 @@ This tool is not associated with arXiv and we thank arXiv for use of its open ac
 ## Features
 Stay up to date with recent publications in your field. New arXiv articles get fetched automatically according to predefined categories, and can be further filtered using custom filters. Read something you like? Save it for future reading right in your local PDF reader!
 
-- **🚀 Smart Fetching**: Automatic background fetching of recent arXiv articles (last 7 days)
-- **🔍 Advanced Filtering**: Configure custom filters with category and text-based criteria
-- **📖 Reading Status**: Track viewed articles automatically
-- **🗃️ Persistent Database**: All articles stored locally in SQLite for fast offline access
-- **📁 Category Management**: Organize articles by arXiv categories (cs.AI, hep-th, etc.)
-- **🏷️ Tag Management**: Add custom tags to articles and filter by tags
-- **📝 Notes Management**: Create and edit markdown notes for articles
-- **📚 Citations Information**: Fetch and view BibTeX citations from Inspire-HEP & browse references and citations
-- **💾 Save System**: Save and organize your favorite articles
-- **📱 Modern TUI**: Beautiful, responsive terminal interface with mouse support
-- **📄 PDF Integration**: Download and open PDFs directly from the application
-- **🔎 Full-Text Search**: Search across titles, authors, and abstracts
+- **Smart Fetching**: Automatic background fetching of recent arXiv articles (last 7 days). Recent articles from selected categories and filters appear in your overview
+- **Advanced Filtering**: Configure custom filters with category and text-based criteria
+- **Reading Status**: Track viewed articles automatically
+- **Persistent Database**: All articles stored locally in SQLite for fast offline access
+- **Category Management**: Organize articles by arXiv categories (cs.AI, hep-th, etc.)
+- **Tag Management**: Add custom tags to articles and filter by tags
+- **Notes Management**: Create and edit markdown notes for articles
+- **Citations Information**: Fetch and view BibTeX citations from Inspire-HEP & browse references and citations
+- **Save System**: Save and organize your favorite articles
+- **Modern TUI**: Beautiful, responsive terminal interface with mouse support
+- **PDF Integration**: Download and open PDFs directly from the application
+- **Full-Text Search**: Search across titles, authors, and abstracts
 
 ## Screenshots
 

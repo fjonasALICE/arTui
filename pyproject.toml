@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "artui"
-version = "0.1.0"
+version = "1.0.0"
 authors = [
-    {name = "ArTui Contributors", email = "artui@example.com"},
+    {name = "Florian Jonas", email = "florian.jonas@cern.ch"},
 ]
 description = "A Terminal User Interface for browsing arXiv papers"
 readme = "README.md"
@@ -49,10 +49,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/florianjonas/artui"
-Repository = "https://github.com/florianjonas/artui"
-Documentation = "https://github.com/florianjonas/artui#readme"
-"Bug Tracker" = "https://github.com/florianjonas/artui/issues"
+Homepage = "https://github.com/fjonasALICE/arTui"
+Repository = "https://github.com/fjonasALICE/arTui"
+Documentation = "https://github.com/fjonasALICE/arTui#readme"
+"Bug Tracker" = "https://github.com/fjonasALICE/arTui/issues"
 
 [project.scripts]
 artui = "artui.cli:main"

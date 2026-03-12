@@ -60,30 +60,44 @@ Stay up to date with recent publications in your field. New arXiv articles get f
 - Python 3.8+
 - Internet connection for fetching articles
 
-### Setup
+### Recommended: pipx (isolated, no venv management)
 
-1. **Clone the repository**:
+[pipx](https://pipx.pypa.io) installs CLI tools into their own isolated environment and makes them available system-wide — no manual virtual environment needed.
+
 ```bash
-git clone <repository-url>
-cd arxivreader
+pipx install artui
 ```
 
-2. **Install locally with pip**:
+To install pipx itself:
 ```bash
-# Install in development mode (recommended for local development)
+# macOS
+brew install pipx && pipx ensurepath
+
+# Linux / Windows (via pip)
+pip install --user pipx && pipx ensurepath
+```
+
+### Alternative: pip
+
+```bash
+pip install artui
+```
+
+### From source (development)
+
+```bash
+git clone https://github.com/fjonasALICE/arTui
+cd artui
 pip install -e .
-
-# Or install normally
-pip install .
 ```
 
-3. **Run the application**:
+### Running the application
+
 ```bash
 artui
 ```
 
-4. **First time setup**:
-After opening the application for the first time, press the 'r' button to refresh and populate the database with recent articles.
+**First time setup**: press `r` to fetch recent articles and populate the database.
 
 ## Configuration
 

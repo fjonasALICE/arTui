@@ -1,6 +1,7 @@
 # ArTui - Stay up to date with recent ArXiv submissions!
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PyPI](https://img.shields.io/pypi/v/artui)](https://pypi.org/project/artui/)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![Commits](https://img.shields.io/badge/commits-48-green.svg)](#)
 [![Built with Textual](https://img.shields.io/badge/built%20with-Textual-purple.svg)](https://github.com/Textualize/textual)
@@ -12,23 +13,22 @@ A Terminal User Interface (TUI) application to stay up to date with recent arXiv
 
 **The main goal of the tool is to stay up to date with recent publications in your field**
 
-# Disclaimer
+## Disclaimer
 This tool is not associated with arXiv and we thank arXiv for use of its open access interoperability. We also thank INSPIRE for providing their API free of charge for educational and informational use. The tool has been developed with the help of a mix of Claude Sonnet 4 and Gemini 2.5 Pro.
-## Features
-Stay up to date with recent publications in your field. New arXiv articles get fetched automatically according to predefined categories, and can be further filtered using custom filters. Read something you like? Save it for future reading right in your local PDF reader!
 
-- **Smart Fetching**: Automatic background fetching of recent arXiv articles (last 7 days). Recent articles from selected categories and filters appear in your overview
-- **Advanced Filtering**: Configure custom filters with category and text-based criteria
-- **Reading Status**: Track viewed articles automatically
-- **Persistent Database**: All articles stored locally in SQLite for fast offline access
-- **Category Management**: Organize articles by arXiv categories (cs.AI, hep-th, etc.)
-- **Tag Management**: Add custom tags to articles and filter by tags
-- **Notes Management**: Create and edit markdown notes for articles
-- **Citations Information**: Fetch and view BibTeX citations from Inspire-HEP & browse references and citations
-- **Save System**: Save and organize your favorite articles
-- **Modern TUI**: Beautiful, responsive terminal interface with mouse support
-- **PDF Integration**: Download and open PDFs directly from the application
-- **Full-Text Search**: Search across titles, authors, and abstracts
+## How it works
+
+**Feed** — Your main view. Shows recent arXiv papers (last 7 days) from all subscribed categories. New submissions appear automatically after each fetch. Read articles are tracked and cleaned up after a configurable retention period to keep your feed fresh.
+
+**Categories** — arXiv subject areas you want to follow (e.g. `hep-th`, `cs.AI`, `astro-ph.HE`). Every article that falls under a subscribed category will show up in your feed. Configure them in the config file.
+
+**Filters** — Optional keyword rules applied on top of categories. A filter targets one or more categories and keeps only articles whose title or abstract match your criteria — useful for narrowing a broad category to your specific topics of interest.
+
+**Library** — Articles you explicitly save are kept here indefinitely. Unlike the feed, saved articles are never auto-removed. Enrich them with custom tags and markdown notes for easy organisation and reference.
+
+**Global Search** — Search the full arXiv database beyond your subscribed categories. Any article found this way can be added directly to your library.
+
+**Citation Network** — Browse citations of a given article using inspire-hep without leaving the terminal.
 
 ## Screenshots
 
@@ -43,16 +43,6 @@ Stay up to date with recent publications in your field. New arXiv articles get f
 ![Inspire information](inspire.jpg)
 
 *The INSPIRE citation interface showing BibTeX citation information*
-
-## How it works
-- **Feed Configuration**: Categories and filters are configured in the YAML config file, which determines what articles appear in your personalized feed
-- **Stay Current**: Browse articles from your feed to keep up with the latest publications in your field
-- **Save for Later**: Mark articles you want to revisit by saving them to your Library using the "save" key
-- **Automatic Cleanup**: Read articles in your feed are automatically removed after a retention period (default: 30 days) to keep your feed fresh
-- **Permanent Library**: Saved articles remain in your library indefinitely and can be enhanced with custom tags and markdown notes
-- **Global Discovery**: Search the entire arXiv database using "Global search" and add interesting articles directly to your library
-- **Citation Network**: Explore the academic network by browsing papers that reference a given article or papers that cite it
-
 
 ## Installation
 
@@ -90,14 +80,6 @@ git clone https://github.com/fjonasALICE/arTui
 cd artui
 pip install -e .
 ```
-
-### Running the application
-
-```bash
-artui
-```
-
-**First time setup**: press `r` to fetch recent articles and populate the database.
 
 ## Configuration
 
@@ -185,10 +167,12 @@ filters:
 artui
 ```
 
+On first launch a config wizard will open — set your categories, save, and the app starts fetching. After that, `r` manually triggers a refresh.
+
 The application will:
 1. Create the database file if it doesn't exist
 2. Start the TUI interface
-3. Automatically refresh articles (same as pressing 'r') - fetching recent articles (last 7 days)
+3. Automatically refresh articles (fetching the last 7 days)
 4. Load the first configured category/filter automatically
 
 ### Key Bindings
@@ -228,7 +212,8 @@ Copyright 2025 Florian Jonas
 
 ## Support
 
-For issues and feature requests, please use the GitHub issue tracker. 
+For issues and feature requests, please use the GitHub issue tracker.
+
 ## Dependencies
 
 This project depends on the following Python packages:

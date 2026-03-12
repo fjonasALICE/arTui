@@ -28,7 +28,8 @@ from .fetcher import ArticleFetcher
 from .user_dirs import get_user_dirs
 from .ui.screens import (
     SelectionPopupScreen, BibtexPopupScreen, 
-    TagPopupScreen, NotesPopupScreen, AdvancedSearchPopupScreen
+    TagPopupScreen, NotesPopupScreen, AdvancedSearchPopupScreen,
+    FirstRunPopupScreen,
 )
 from .ui.widgets import ArticleTableWidget
 from .ui.utils import convert_db_results_to_articles, debug_log
@@ -221,15 +222,57 @@ class ArxivReaderApp(App):
         except Exception:
             pass  # List view or item not found
 
-        self.notify("Refreshing articles...", title="Manual Refresh", timeout=3)
-        self.manual_refresh_articles()
-
         # Set initial state of global search checkbox
         global_search_checkbox = self.query_one("#global_search_checkbox", Checkbox)
         global_search_checkbox.value = self.global_search_enabled
-        
+
         # Update header status on mount
         self.update_header_status()
+
+        if self.config_manager.is_first_run:
+            # On first run, hold off fetching until the user has edited their config
+            self.call_after_refresh(self._show_first_run_popup)
+        else:
+            self.notify("Refreshing articles...", title="Manual Refresh", timeout=3)
+            self.manual_refresh_articles()
+
+    def _show_first_run_popup(self) -> None:
+        """Push the first-run welcome screen."""
+        def handle_result(confirmed: bool) -> None:
+            if confirmed:
+                self.call_later(self._first_run_setup_complete)
+
+        self.push_screen(
+            FirstRunPopupScreen(self.config_manager.config_path, self._open_config_in_editor),
+            handle_result,
+        )
+
+    async def _first_run_setup_complete(self) -> None:
+        """Reload config and start fetching after the user confirms first-run setup."""
+        self.config_manager.reload_config()
+        await self._rebuild_sidebar_feed_section()
+        self.notify("Starting article fetch with your configuration...", timeout=4)
+        self.manual_refresh_articles()
+
+    def _open_config_in_editor(self) -> None:
+        """Open the config file in the system editor."""
+        config_path = self.config_manager.config_path
+        try:
+            if platform.system() == "Darwin":
+                subprocess.Popen(["open", config_path])
+            else:
+                editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+                if editor:
+                    subprocess.Popen([editor, config_path])
+                else:
+                    subprocess.Popen(["xdg-open", config_path])
+            self.notify(f"Opened config: {config_path}", timeout=5)
+        except Exception as e:
+            self.notify(
+                f"Could not open editor. Edit manually: {config_path}",
+                severity="warning",
+                timeout=8,
+            )
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Handle menu item selection from list views."""
@@ -284,12 +327,23 @@ class ArxivReaderApp(App):
         try:
             config = self.config_manager.get_config()
             retention_days = config.get("feed_retention_days", 30)
-            
+
             deleted_count = self.db.cleanup_old_unsaved_articles(retention_days)
-            
+
             if deleted_count > 0:
                 print(f"Cleanup: Removed {deleted_count} old unsaved articles (older than {retention_days} days)")
-                
+
+            # Collect all currently configured arXiv category codes
+            configured_codes = list(self.config_manager.get_categories().values())
+            for filter_cfg in self.config_manager.get_filters().values():
+                configured_codes.extend(filter_cfg.get("categories", []))
+            configured_codes = list(set(configured_codes))
+
+            outside_count = self.db.cleanup_articles_outside_categories(configured_codes)
+
+            if outside_count > 0:
+                print(f"Cleanup: Removed {outside_count} unsaved articles from categories no longer in config")
+
         except Exception as e:
             # Don't let cleanup errors prevent app startup
             print(f"Warning: Cleanup routine failed: {e}")
@@ -365,7 +419,10 @@ class ArxivReaderApp(App):
             # Record refresh time
             import time
             self.last_refresh_time = time.time()
-            
+
+            # Silently reload config from disk so any external edits are picked up
+            self.config_manager.reload_config()
+
             # Fetch recent articles (same as startup)
             results = self.fetcher.fetch_recent_articles(days=7, max_per_category=100)
             total_new = sum(results.values())
@@ -1664,6 +1721,59 @@ class ArxivReaderApp(App):
         table = self.query_one("#results_table", ArticleTableWidget)
         status = table._build_status_string(article, table.current_is_global_search)
         table.update_cell_at(Coordinate(row_index, 0), status)
+
+    async def _rebuild_sidebar_feed_section(self) -> None:
+        """Rebuild the filters and categories sections in the sidebar from the current config.
+        
+        Called after the user confirms first-run setup so the sidebar reflects the
+        newly saved config before fetching begins.
+        """
+        try:
+            feed_container = self.query_one("#feed_container", Vertical)
+            config = self.config_manager.get_config()
+            retention_days = config.get("feed_retention_days", 30)
+
+            # Remove stale containers — must be awaited so the DOM is clear
+            # before we mount new widgets with the same IDs
+            for widget_id in ("#filters_container", "#categories_container"):
+                try:
+                    await feed_container.query_one(widget_id).remove()
+                except Exception:
+                    pass
+
+            # Remount filters — mount the container first, then its children explicitly
+            filters = config.get("filters", {})
+            if filters:
+                filter_items = []
+                for name, filter_config in filters.items():
+                    unread_count = self.db.get_unread_count_by_filter(filter_config, retention_days)
+                    filter_text = f"{name} ({unread_count})" if unread_count > 0 else name
+                    filter_items.append(
+                        ListItem(Static(filter_text), id=f"filter_{name.replace(' ', '_')}")
+                    )
+                filters_vertical = Vertical(id="filters_container")
+                await feed_container.mount(filters_vertical)
+                await filters_vertical.mount(Static("Filters", classes="pane_title sub_title"))
+                await filters_vertical.mount(ListView(*filter_items, id="filters_list"))
+
+            # Remount categories — mount the container first, then its children explicitly
+            categories = config.get("categories", {})
+            if categories:
+                category_items = []
+                for name, code in categories.items():
+                    unread_count = self.db.get_unread_count_by_category(code, retention_days)
+                    category_text = f"{name} ({unread_count})" if unread_count > 0 else name
+                    sanitized_code = re.sub(r'[^a-zA-Z0-9_-]', '_', code)
+                    cat_item = ListItem(Static(category_text), id=f"cat_{sanitized_code}")
+                    cat_item.original_category_code = code
+                    category_items.append(cat_item)
+                categories_vertical = Vertical(id="categories_container")
+                await feed_container.mount(categories_vertical)
+                await categories_vertical.mount(Static("Categories", classes="pane_title sub_title"))
+                await categories_vertical.mount(ListView(*category_items, id="categories_list"))
+        except Exception as e:
+            self.notify(f"Sidebar rebuild error: {e}", severity="warning", timeout=6)
+            debug_log(f"_rebuild_sidebar_feed_section error: {e}")
 
     def reload_left_panel(self) -> None:
         """Update the tags section in the left panel to show new tags."""

@@ -46,6 +46,7 @@ class ConfigManager:
         
         self.config_path = config_path
         self._config = None
+        self.is_first_run = False
     
     def _find_config_file(self) -> str:
         """Find configuration file in standard locations."""
@@ -78,6 +79,7 @@ class ConfigManager:
                 self._config = yaml.safe_load(f) or {}
         except FileNotFoundError:
             self._config = {}
+            self.is_first_run = True
             self.create_default_config()
         except yaml.YAMLError as e:
             raise ValueError(f"Invalid YAML in config file {self.config_path}: {e}")

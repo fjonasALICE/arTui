@@ -723,6 +723,47 @@ class ArticleDatabase:
             """)
             return cursor.rowcount
     
+    def cleanup_articles_outside_categories(self, category_codes: List[str]) -> int:
+        """Remove unsaved articles whose categories have no overlap with the configured categories.
+        
+        This prevents stale articles from old/removed config categories accumulating in the database.
+        Articles that are saved, tagged, or have notes are always preserved.
+        Returns the number of articles removed.
+        """
+        if not category_codes:
+            return 0
+
+        with self.get_connection() as conn:
+            placeholders = ",".join("?" * len(category_codes))
+            cursor = conn.execute(f"""
+                SELECT a.id
+                FROM articles a
+                LEFT JOIN article_status s ON a.id = s.article_id
+                WHERE (s.is_saved IS NULL OR s.is_saved = 0)
+                AND a.notes_file_path IS NULL
+                AND NOT EXISTS (
+                    SELECT 1 FROM json_each(a.categories)
+                    WHERE json_each.value IN ({placeholders})
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM article_tags WHERE article_id = a.id
+                )
+            """, category_codes)
+
+            article_ids_to_delete = [row["id"] for row in cursor.fetchall()]
+
+            if not article_ids_to_delete:
+                return 0
+
+            id_placeholders = ",".join("?" * len(article_ids_to_delete))
+
+            conn.execute(f"DELETE FROM article_tags WHERE article_id IN ({id_placeholders})", article_ids_to_delete)
+            conn.execute(f"DELETE FROM article_status WHERE article_id IN ({id_placeholders})", article_ids_to_delete)
+            cursor = conn.execute(f"DELETE FROM articles WHERE id IN ({id_placeholders})", article_ids_to_delete)
+
+            self.cleanup_orphan_tags()
+            return cursor.rowcount
+
     def cleanup_old_unsaved_articles(self, retention_days: int) -> int:
         """Remove articles that are older than retention period AND not saved. Returns number of articles removed."""
         from datetime import datetime, timedelta

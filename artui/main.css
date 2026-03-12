@@ -482,3 +482,80 @@ AdvancedSearchPopupScreen {
 #advanced_cancel_button {
     width: 1fr;
 }
+
+FirstRunPopupScreen {
+    align: center middle;
+}
+
+#first_run_dialog {
+    width: 75;
+    height: auto;
+    max-height: 90vh;
+    padding: 2;
+    border: thick $primary;
+    background: $surface;
+    layout: vertical;
+}
+
+#first_run_title {
+    content-align: center middle;
+    width: 100%;
+    margin-bottom: 1;
+    text-style: bold;
+    color: $accent;
+    padding: 1;
+}
+
+#first_run_message {
+    width: 100%;
+    margin-bottom: 1;
+    padding: 0 1;
+}
+
+#first_run_path {
+    width: 100%;
+    margin-bottom: 1;
+    padding: 1;
+    background: $background;
+    border: solid $accent;
+}
+
+#first_run_concepts_title {
+    width: 100%;
+    margin-top: 1;
+    margin-bottom: 1;
+    padding: 0 1;
+    text-style: bold;
+    color: $accent;
+}
+
+#first_run_concepts_scroll {
+    width: 100%;
+    height: 12;
+    border: solid $primary 50%;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+.first_run_concept {
+    width: 100%;
+    margin-bottom: 1;
+    padding: 0 1;
+    color: $text-muted;
+}
+
+#first_run_buttons {
+    layout: horizontal;
+    width: 100%;
+    height: 3;
+    margin-top: 1;
+}
+
+#first_run_open_button {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#first_run_later_button {
+    width: 1fr;
+}

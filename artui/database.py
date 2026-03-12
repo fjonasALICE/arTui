@@ -606,7 +606,9 @@ class ArticleDatabase:
                 # Tag already exists, get its ID
                 cursor = conn.execute("SELECT id FROM tags WHERE name = ?", (name,))
                 result = cursor.fetchone()
-                return result['id'] if result else None
+                if result is None:
+                    raise RuntimeError(f"Tag '{name}' disappeared after IntegrityError")
+                return result['id']
     
     def get_all_tags(self) -> List[Dict]:
         """Get all tags sorted by name."""

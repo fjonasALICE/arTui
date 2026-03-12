@@ -89,9 +89,12 @@ class BibtexPopupScreen(ModalScreen):
         if event.button.id == "bibtex_close_button":
             self.dismiss()
         elif event.button.id == "bibtex_copy_button":
-            import pyperclip
-            pyperclip.copy(self.bibtex_content)
-            self.notify("BibTeX copied to clipboard", timeout=2)
+            try:
+                import pyperclip
+                pyperclip.copy(self.bibtex_content)
+                self.notify("BibTeX copied to clipboard", timeout=2)
+            except Exception as e:
+                self.notify(f"Failed to copy to clipboard: {e}", severity="error", timeout=3)
     
     def on_click(self, event: events.Click) -> None:
         """Handle clicks on the popup."""
@@ -242,7 +245,7 @@ class TagPopupScreen(ModalScreen):
         try:
             no_tags = self.query_one("#no_tags_message")
             no_tags.remove()
-        except:
+        except Exception:
             pass
             
         # Add checkbox to scroll area
@@ -410,7 +413,7 @@ class AdvancedSearchPopupScreen(ModalScreen):
                         try:
                             other_checkbox = self.query_one(f"#field_{other_field}")
                             other_checkbox.value = False
-                        except:
+                        except Exception:
                             pass
             else:
                 # If "All Fields" is unchecked, remove it from selection
@@ -436,7 +439,7 @@ class AdvancedSearchPopupScreen(ModalScreen):
                     try:
                         all_checkbox = self.query_one("#field_all")
                         all_checkbox.value = True
-                    except:
+                    except Exception:
                         pass
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -481,14 +484,10 @@ class AdvancedSearchPopupScreen(ModalScreen):
                     "selected_fields": list(self.selected_fields)
                 }
                 
-                # Debug: Print the search parameters before dismissing
-                print(f"DEBUG: Advanced search dismissing with params: {search_params}")
                 self.dismiss(search_params)
-                
+
             except Exception as e:
-                print(f"ERROR in advanced search button handler: {e}")
-                import traceback
-                traceback.print_exc()
+                self.notify(f"Error building search: {e}", severity="error", timeout=5)
 
     def on_key(self, event) -> None:
         if event.key == "escape":

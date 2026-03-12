@@ -18,15 +18,21 @@ class MockArticle:
         self.pdf_url = db_result['pdf_url']
         
         # Parse JSON fields
-        if isinstance(db_result['authors'], str):
-            author_names = json.loads(db_result['authors'])
-        else:
-            author_names = db_result['authors']
-        
-        if isinstance(db_result['categories'], str):
-            self.categories = json.loads(db_result['categories'])
-        else:
-            self.categories = db_result['categories']
+        try:
+            if isinstance(db_result['authors'], str):
+                author_names = json.loads(db_result['authors'])
+            else:
+                author_names = db_result['authors'] or []
+        except (json.JSONDecodeError, ValueError):
+            author_names = []
+
+        try:
+            if isinstance(db_result['categories'], str):
+                self.categories = json.loads(db_result['categories'])
+            else:
+                self.categories = db_result['categories'] or []
+        except (json.JSONDecodeError, ValueError):
+            self.categories = []
         
         # Create mock author objects
         self.authors = []
@@ -66,19 +72,22 @@ class MockArticle:
     
     def download_pdf(self, dirpath: str = ".") -> str:
         """Download PDF file to specified directory."""
-        import requests
-        
         filepath = self.construct_filepath(dirpath)
-        
-        # Download the PDF
+
         if not self.is_downloaded(dirpath):
             response = requests.get(self.pdf_url, stream=True)
             response.raise_for_status()
-        
-            with open(filepath, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-        
+
+            try:
+                with open(filepath, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            except Exception:
+                # Remove partial file so the next attempt re-downloads cleanly
+                if os.path.exists(filepath):
+                    os.unlink(filepath)
+                raise
+
         return filepath
 
 
@@ -88,12 +97,9 @@ def convert_db_results_to_articles(db_results: List[Dict[str, Any]]) -> List[Moc
 
 
 def debug_log(msg: str) -> None:
-    """Write debug message to stderr and a debug file."""
+    """Write debug message to stderr."""
     import sys
     print(f"DEBUG: {msg}", file=sys.stderr, flush=True)
-    with open("debug.log", "a") as f:
-        f.write(f"DEBUG: {msg}\n")
-        f.flush()
 
 
 def get_arxiv_ids_from_inspire_ids(inspire_ids: List[int]) -> List[str]:

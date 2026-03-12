@@ -482,38 +482,37 @@ class ArxivReaderApp(App):
                     severity="warning",
                     timeout=5
                 )
-                return
-            
-            # Fetch articles by arXiv IDs
-            arxiv_results = self.fetcher.fetch_articles_by_ids(arxiv_ids)
-            
-            # Add status information (not saved, not viewed since from references)
-            self.search_results = []
-            for result in arxiv_results:
-                result.is_saved = False
-                result.is_viewed = False
-                self.search_results.append(result)
-            
-            # Set flag to indicate results are from references (similar to global search)
-            self.current_results_from_global = True
-            self.current_results_type = "references"
-            self.current_query = ""  # Clear search query since this is reference-based
-            
-            self.call_from_thread(
-                self.notify,
-                f"Found {len(self.search_results)} reference articles",
-                timeout=3
-            )
+                self.search_results = []
+            else:
+                # Fetch articles by arXiv IDs
+                arxiv_results = self.fetcher.fetch_articles_by_ids(arxiv_ids)
+
+                # Add status information (not saved, not viewed since from references)
+                self.search_results = []
+                for result in arxiv_results:
+                    result.is_saved = False
+                    result.is_viewed = False
+                    self.search_results.append(result)
+
+                # Set flag to indicate results are from references (similar to global search)
+                self.current_results_from_global = True
+                self.current_results_type = "references"
+                self.current_query = ""  # Clear search query since this is reference-based
+
+                self.call_from_thread(
+                    self.notify,
+                    f"Found {len(self.search_results)} reference articles",
+                    timeout=3
+                )
                 
         except Exception as e:
-            self.call_from_thread(table.clear)
             self.call_from_thread(
                 abstract_view.update,
                 f"[bold red]Error fetching reference articles:[/bold red]\n{e}",
             )
             self.search_results = []
 
-        # Clear loading indicator and populate table with real results
+        # Always clear the loading indicator and populate with real results (or empty)
         self.call_from_thread(table.clear)
         self.call_from_thread(self._populate_table)
         self.call_from_thread(self.update_results_title)
@@ -546,38 +545,37 @@ class ArxivReaderApp(App):
                     severity="warning",
                     timeout=5
                 )
-                return
-            
-            # Fetch articles by arXiv IDs
-            arxiv_results = self.fetcher.fetch_articles_by_ids(arxiv_ids)
-            
-            # Add status information (not saved, not viewed since from citations)
-            self.search_results = []
-            for result in arxiv_results:
-                result.is_saved = False
-                result.is_viewed = False
-                self.search_results.append(result)
-            
-            # Set flag to indicate results are from citations (similar to global search)
-            self.current_results_from_global = True
-            self.current_results_type = "citations"
-            self.current_query = ""  # Clear search query since this is citation-based
-            
-            self.call_from_thread(
-                self.notify,
-                f"Found {len(self.search_results)} citing articles",
-                timeout=3
-            )
+                self.search_results = []
+            else:
+                # Fetch articles by arXiv IDs
+                arxiv_results = self.fetcher.fetch_articles_by_ids(arxiv_ids)
+
+                # Add status information (not saved, not viewed since from citations)
+                self.search_results = []
+                for result in arxiv_results:
+                    result.is_saved = False
+                    result.is_viewed = False
+                    self.search_results.append(result)
+
+                # Set flag to indicate results are from citations (similar to global search)
+                self.current_results_from_global = True
+                self.current_results_type = "citations"
+                self.current_query = ""  # Clear search query since this is citation-based
+
+                self.call_from_thread(
+                    self.notify,
+                    f"Found {len(self.search_results)} citing articles",
+                    timeout=3
+                )
                 
         except Exception as e:
-            self.call_from_thread(table.clear)
             self.call_from_thread(
                 abstract_view.update,
                 f"[bold red]Error fetching citing articles:[/bold red]\n{e}",
             )
             self.search_results = []
 
-        # Clear loading indicator and populate table with real results
+        # Always clear the loading indicator and populate with real results (or empty)
         self.call_from_thread(table.clear)
         self.call_from_thread(self._populate_table)
         self.call_from_thread(self.update_results_title)
@@ -653,10 +651,10 @@ class ArxivReaderApp(App):
         """Filter results by search query."""
         search_lower = self.current_query.lower()
         return [
-            result for result in results 
-            if (search_lower in result['title'].lower() or 
-                search_lower in result['summary'].lower() or
-                search_lower in result['authors'].lower())
+            result for result in results
+            if (search_lower in (result.get('title') or '').lower() or
+                search_lower in (result.get('summary') or '').lower() or
+                search_lower in (result.get('authors') or '').lower())
         ]
 
     def _handle_special_selections(self, config: Dict[str, Any], retention_days: int) -> List[Dict[str, Any]]:
@@ -1059,6 +1057,15 @@ class ArxivReaderApp(App):
     
     def show_notes_popup(self, article) -> None:
         """Create and show the notes popup for an article."""
+        # For global search results the article may not be in the DB yet;
+        # set_notes_path writes to the articles table so we must add it first.
+        if self.current_results_from_global:
+            try:
+                self.db.add_article(article)
+            except Exception as e:
+                self.notify(f"Error adding article to database: {e}", severity="error")
+                return
+
         article_id = article.get_short_id()
         notes_path_str = self.db.get_notes_path(article_id)
 
@@ -1325,7 +1332,6 @@ class ArxivReaderApp(App):
                 timeout=5
             )
             references = literature_entry.get_references_ids()
-            print(references)
             # Get bibtex entry
             bibtex_url = f"https://inspirehep.net/api/literature?q=arxiv:{base_article_id}&format=bibtex"
             bibtex_response = requests.get(bibtex_url, timeout=10)
@@ -1389,9 +1395,7 @@ class ArxivReaderApp(App):
     
     def advanced_search_callback(self, search_params):
         """Callback for when advanced search is completed."""
-        print(f"DEBUG: Advanced search callback called with params: {search_params}")
         if not search_params:
-            print("DEBUG: No search params, returning")
             return
         
         # Clear any current selection and search

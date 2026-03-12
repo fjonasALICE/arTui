@@ -1,5 +1,6 @@
 """Configuration management for ArTui."""
 
+import copy
 import os
 import yaml
 from typing import Dict, Any, Optional
@@ -81,8 +82,8 @@ class ConfigManager:
         except yaml.YAMLError as e:
             raise ValueError(f"Invalid YAML in config file {self.config_path}: {e}")
         
-        # Merge with defaults
-        config = self.DEFAULT_CONFIG.copy()
+        # Merge with defaults (deep copy to avoid mutating class-level DEFAULT_CONFIG)
+        config = copy.deepcopy(self.DEFAULT_CONFIG)
         config.update(self._config)
         self._config = config
         

@@ -27,16 +27,23 @@ class ArticleFetcher:
         
         return last_fetched < threshold_time
     
+    # Top-level arXiv categories that contain a hyphen but still have dot-separated
+    # sub-categories (e.g. astro-ph.CO, cond-mat.mes-hall).  These need the '.*'
+    # wildcard so that fetching the parent returns all sub-category papers.
+    _HYPHENATED_PARENT_CATEGORIES = frozenset([
+        "astro-ph", "cond-mat", "q-bio", "q-fin",
+    ])
+
     def _build_category_query(self, category_code: str) -> str:
         """Build arXiv query string for a category."""
         if "." not in category_code and "-" not in category_code:
-            # Top-level category, search all subcategories
+            # Simple top-level category like 'cs', 'math', 'physics'
             return f"cat:{category_code}.*"
-        elif category_code in ["q-bio", "q-fin"]:
-            # Special cases
+        elif category_code in self._HYPHENATED_PARENT_CATEGORIES:
+            # Hyphenated top-level categories that have dot-separated sub-categories
             return f"cat:{category_code}.*"
         else:
-            # Specific subcategory
+            # Specific sub-category like 'hep-th', 'cs.AI', 'astro-ph.CO'
             return f"cat:{category_code}"
     
     def fetch_category_articles(self, category_code: str, category_name: str, max_results: int = 200) -> int:
@@ -275,8 +282,6 @@ class ArticleFetcher:
             
             sort_criterion = sort_mapping.get(sort_by, arxiv.SortCriterion.Relevance)
             
-            print(f"DEBUG: Searching arXiv with query='{query}', max_results={max_results}, sort_by={sort_by}")
-            
             search = arxiv.Search(
                 query=query,
                 max_results=max_results,
@@ -284,7 +289,6 @@ class ArticleFetcher:
             )
             
             results = list(search.results())
-            print(f"DEBUG: Retrieved {len(results)} results from arXiv")
             
             return results
             

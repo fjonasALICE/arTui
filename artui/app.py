@@ -539,37 +539,43 @@ class ArxivReaderApp(App):
                     severity="warning",
                     timeout=5
                 )
-                self.search_results = []
-            else:
-                # Fetch articles by arXiv IDs
-                arxiv_results = self.fetcher.fetch_articles_by_ids(arxiv_ids)
+                self.call_from_thread(table.clear)
+                self.call_from_thread(self._populate_table)
+                self.call_from_thread(self.update_results_title)
+                self.call_from_thread(self.refresh_left_panel_counts)
+                return
 
-                # Add status information (not saved, not viewed since from references)
-                self.search_results = []
-                for result in arxiv_results:
-                    result.is_saved = False
-                    result.is_viewed = False
-                    self.search_results.append(result)
+            # Fetch articles by arXiv IDs
+            arxiv_results = self.fetcher.fetch_articles_by_ids(arxiv_ids)
 
-                # Set flag to indicate results are from references (similar to global search)
-                self.current_results_from_global = True
-                self.current_results_type = "references"
-                self.current_query = ""  # Clear search query since this is reference-based
+            # Add status information (not saved, not viewed since from references)
+            self.search_results = []
+            for result in arxiv_results:
+                result.is_saved = False
+                result.is_viewed = False
+                self.search_results.append(result)
 
-                self.call_from_thread(
-                    self.notify,
-                    f"Found {len(self.search_results)} reference articles",
-                    timeout=3
-                )
-                
+            # Set flag to indicate results are from references (similar to global search)
+            self.current_results_from_global = True
+            self.current_results_type = "references"
+            self.current_query = ""  # Clear search query since this is reference-based
+
+            self.call_from_thread(
+                self.notify,
+                f"Found {len(self.search_results)} reference articles",
+                timeout=3
+            )
+
         except Exception as e:
+            self.call_from_thread(table.clear)
             self.call_from_thread(
                 abstract_view.update,
                 f"[bold red]Error fetching reference articles:[/bold red]\n{e}",
             )
             self.search_results = []
+            return
 
-        # Always clear the loading indicator and populate with real results (or empty)
+        # Clear the loading indicator and populate with real results
         self.call_from_thread(table.clear)
         self.call_from_thread(self._populate_table)
         self.call_from_thread(self.update_results_title)
@@ -602,37 +608,43 @@ class ArxivReaderApp(App):
                     severity="warning",
                     timeout=5
                 )
-                self.search_results = []
-            else:
-                # Fetch articles by arXiv IDs
-                arxiv_results = self.fetcher.fetch_articles_by_ids(arxiv_ids)
+                self.call_from_thread(table.clear)
+                self.call_from_thread(self._populate_table)
+                self.call_from_thread(self.update_results_title)
+                self.call_from_thread(self.refresh_left_panel_counts)
+                return
 
-                # Add status information (not saved, not viewed since from citations)
-                self.search_results = []
-                for result in arxiv_results:
-                    result.is_saved = False
-                    result.is_viewed = False
-                    self.search_results.append(result)
+            # Fetch articles by arXiv IDs
+            arxiv_results = self.fetcher.fetch_articles_by_ids(arxiv_ids)
 
-                # Set flag to indicate results are from citations (similar to global search)
-                self.current_results_from_global = True
-                self.current_results_type = "citations"
-                self.current_query = ""  # Clear search query since this is citation-based
+            # Add status information (not saved, not viewed since from citations)
+            self.search_results = []
+            for result in arxiv_results:
+                result.is_saved = False
+                result.is_viewed = False
+                self.search_results.append(result)
 
-                self.call_from_thread(
-                    self.notify,
-                    f"Found {len(self.search_results)} citing articles",
-                    timeout=3
-                )
-                
+            # Set flag to indicate results are from citations (similar to global search)
+            self.current_results_from_global = True
+            self.current_results_type = "citations"
+            self.current_query = ""  # Clear search query since this is citation-based
+
+            self.call_from_thread(
+                self.notify,
+                f"Found {len(self.search_results)} citing articles",
+                timeout=3
+            )
+
         except Exception as e:
+            self.call_from_thread(table.clear)
             self.call_from_thread(
                 abstract_view.update,
                 f"[bold red]Error fetching citing articles:[/bold red]\n{e}",
             )
             self.search_results = []
+            return
 
-        # Always clear the loading indicator and populate with real results (or empty)
+        # Clear the loading indicator and populate with real results
         self.call_from_thread(table.clear)
         self.call_from_thread(self._populate_table)
         self.call_from_thread(self.update_results_title)
@@ -1431,9 +1443,22 @@ class ArxivReaderApp(App):
     def _copy_to_clipboard(self, content: str) -> None:
         """Copy content to clipboard. Must be called from main thread."""
         try:
-            pyperclip.copy(content)
+            if platform.system() == "Darwin":
+                subprocess.run(["pbcopy"], input=content.encode(), timeout=3, check=True)
+            elif platform.system() == "Linux":
+                # Try Wayland first, then X11 tools
+                for cmd in (["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]):
+                    try:
+                        subprocess.run(cmd, input=content.encode(), timeout=3, check=True)
+                        return
+                    except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError):
+                        continue
+                # Fall back to pyperclip as last resort
+                pyperclip.copy(content)
+            else:
+                pyperclip.copy(content)
         except Exception as e:
-            self.notify(f"Failed to copy to clipboard: {str(e)}", severity="error", timeout=3)
+            self.notify(f"Failed to copy to clipboard: {str(e)}", severity="warning", timeout=3)
     
     def _push_bibtex_screen(self, screen_data: dict) -> None:
         """Push BibtexPopupScreen from main thread. Must be called from main thread."""

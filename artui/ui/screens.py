@@ -2,6 +2,8 @@
 
 import os
 import re
+import platform
+import subprocess
 from typing import Optional, List, Dict, Any
 
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -89,13 +91,30 @@ class BibtexPopupScreen(ModalScreen):
         if event.button.id == "bibtex_close_button":
             self.dismiss()
         elif event.button.id == "bibtex_copy_button":
-            try:
+            self._copy_bibtex_to_clipboard()
+    
+    def _copy_bibtex_to_clipboard(self) -> None:
+        """Copy BibTeX content to clipboard using the most reliable available method."""
+        try:
+            if platform.system() == "Darwin":
+                subprocess.run(["pbcopy"], input=self.bibtex_content.encode(), timeout=3, check=True)
+            elif platform.system() == "Linux":
+                for cmd in (["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]):
+                    try:
+                        subprocess.run(cmd, input=self.bibtex_content.encode(), timeout=3, check=True)
+                        self.notify("BibTeX copied to clipboard", timeout=2)
+                        return
+                    except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError):
+                        continue
                 import pyperclip
                 pyperclip.copy(self.bibtex_content)
-                self.notify("BibTeX copied to clipboard", timeout=2)
-            except Exception as e:
-                self.notify(f"Failed to copy to clipboard: {e}", severity="error", timeout=3)
-    
+            else:
+                import pyperclip
+                pyperclip.copy(self.bibtex_content)
+            self.notify("BibTeX copied to clipboard", timeout=2)
+        except Exception as e:
+            self.notify(f"Failed to copy to clipboard: {e}", severity="warning", timeout=3)
+
     def on_click(self, event: events.Click) -> None:
         """Handle clicks on the popup."""
         # Check if click was on citations or references static widget

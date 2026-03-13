@@ -14,6 +14,9 @@ class ArticleFetcher:
     def __init__(self, db: ArticleDatabase, config_manager: ConfigManager):
         self.db = db
         self.config_manager = config_manager
+        # Single shared client so the 3-second delay between requests is tracked
+        # globally across all fetches, keeping us within arXiv's rate limit.
+        self._client = arxiv.Client(page_size=100, delay_seconds=3.0, num_retries=3)
     
     def should_fetch_category(self, category_code: str, hours_threshold: int = 6) -> bool:
         """Check if category should be fetched based on last fetch time."""
@@ -60,7 +63,7 @@ class ArticleFetcher:
                 sort_by=arxiv.SortCriterion.SubmittedDate
             )
             
-            articles = list(search.results())
+            articles = list(self._client.results(search))
             
             # Add articles to database
             added_count = self.db.add_articles_batch(articles)
@@ -108,7 +111,7 @@ class ArticleFetcher:
                 sort_by=arxiv.SortCriterion.SubmittedDate
             )
             
-            articles = list(search.results())
+            articles = list(self._client.results(search))
             
             # Add articles to database
             added_count = self.db.add_articles_batch(articles)
@@ -188,7 +191,7 @@ class ArticleFetcher:
                     )
                     
                     articles = []
-                    for article in search.results():
+                    for article in self._client.results(search):
                         if article.published.replace(tzinfo=None) >= from_date:
                             articles.append(article)
                         else:
@@ -241,7 +244,7 @@ class ArticleFetcher:
                     )
                     
                     articles = []
-                    for article in search.results():
+                    for article in self._client.results(search):
                         if article.published.replace(tzinfo=None) >= from_date:
                             articles.append(article)
                         else:
@@ -288,7 +291,7 @@ class ArticleFetcher:
                 sort_by=sort_criterion
             )
             
-            results = list(search.results())
+            results = list(self._client.results(search))
             
             return results
             
@@ -311,10 +314,7 @@ class ArticleFetcher:
         try:
             # Use the id_list parameter to fetch articles directly by ID
             search = arxiv.Search(id_list=arxiv_ids)
-            
-            # Create a client and fetch results
-            client = arxiv.Client()
-            articles = list(client.results(search))
+            articles = list(self._client.results(search))
             
             print(f"Fetched {len(articles)} articles from {len(arxiv_ids)} requested IDs")
             

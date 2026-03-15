@@ -32,6 +32,8 @@ This tool is not associated with arXiv and we thank arXiv for use of its open ac
 
 ## Screenshots
 
+![ArTui animated overview](ArtuiShowcase.gif)
+
 ![ArXiv Reader Screenshot](mainscreen.jpg)
 
 *The ArXiv Reader interface showing the category sidebar, article list, and abstract panel*

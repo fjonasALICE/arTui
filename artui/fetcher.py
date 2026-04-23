@@ -2,7 +2,7 @@
 
 import arxiv
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Callable, Any
 
 from .database import ArticleDatabase
 from .config import ConfigManager
@@ -167,20 +167,52 @@ class ArticleFetcher:
         
         return results
     
-    def fetch_recent_articles(self, days: int = 7, max_per_category: int = 50) -> Dict[str, int]:
+    def fetch_recent_articles(
+        self,
+        days: int = 7,
+        max_per_category: int = 50,
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ) -> Dict[str, int]:
         """Fetch only recent articles from all categories and filters (lighter startup option)."""
         print(f"Fetching recent articles from last {days} days...")
         results = {}
         config = self.config_manager.get_config()
+        request_delay = getattr(self._client, "delay_seconds", None)
         
         # Calculate date filter
         from_date = datetime.now() - timedelta(days=days)
         
         # Fetch categories
         categories = config.get("categories", {})
+        filters = config.get("filters", {})
+        total_batches = len(categories) + len(filters)
+        completed_batches = 0
+
+        def emit_progress(payload: Dict[str, Any]) -> None:
+            if progress_callback:
+                progress_callback(payload)
+
+        emit_progress({
+            "event": "refresh_started",
+            "total_batches": total_batches,
+            "completed_batches": completed_batches,
+            "request_delay_seconds": request_delay,
+            "days": days,
+            "max_per_batch": max_per_category,
+        })
+
         if categories:
             for category_name, category_code in categories.items():
                 print(f"Fetching recent {category_name} articles...")
+                emit_progress({
+                    "event": "batch_started",
+                    "batch_type": "category",
+                    "batch_name": category_name,
+                    "batch_code": category_code,
+                    "total_batches": total_batches,
+                    "completed_batches": completed_batches,
+                    "request_delay_seconds": request_delay,
+                })
                 try:
                     query = self._build_category_query(category_code)
                     
@@ -204,16 +236,47 @@ class ArticleFetcher:
                     else:
                         results[f"category_{category_code}"] = 0
                         print(f"  No new recent articles")
+                    completed_batches += 1
+                    emit_progress({
+                        "event": "batch_completed",
+                        "batch_type": "category",
+                        "batch_name": category_name,
+                        "batch_code": category_code,
+                        "total_batches": total_batches,
+                        "completed_batches": completed_batches,
+                        "added_count": results[f"category_{category_code}"],
+                        "request_delay_seconds": request_delay,
+                    })
                         
                 except Exception as e:
                     print(f"  Error: {e}")
                     results[f"category_{category_code}"] = 0
+                    completed_batches += 1
+                    emit_progress({
+                        "event": "batch_completed",
+                        "batch_type": "category",
+                        "batch_name": category_name,
+                        "batch_code": category_code,
+                        "total_batches": total_batches,
+                        "completed_batches": completed_batches,
+                        "added_count": 0,
+                        "request_delay_seconds": request_delay,
+                        "error": str(e),
+                    })
         
         # Fetch filters
-        filters = config.get("filters", {})
         if filters:
             for filter_name, filter_config in filters.items():
                 print(f"Fetching recent {filter_name} filter articles...")
+                emit_progress({
+                    "event": "batch_started",
+                    "batch_type": "filter",
+                    "batch_name": filter_name,
+                    "batch_code": f"filter_{filter_name}",
+                    "total_batches": total_batches,
+                    "completed_batches": completed_batches,
+                    "request_delay_seconds": request_delay,
+                })
                 try:
                     search_terms = []
                     
@@ -233,6 +296,17 @@ class ArticleFetcher:
                     if not search_terms:
                         print(f"  No search terms for filter {filter_name}")
                         results[f"filter_{filter_name}"] = 0
+                        completed_batches += 1
+                        emit_progress({
+                            "event": "batch_completed",
+                            "batch_type": "filter",
+                            "batch_name": filter_name,
+                            "batch_code": f"filter_{filter_name}",
+                            "total_batches": total_batches,
+                            "completed_batches": completed_batches,
+                            "added_count": 0,
+                            "request_delay_seconds": request_delay,
+                        })
                         continue
                     
                     query_string = " AND ".join(search_terms)
@@ -257,13 +331,43 @@ class ArticleFetcher:
                     else:
                         results[f"filter_{filter_name}"] = 0
                         print(f"  No new recent articles")
+                    completed_batches += 1
+                    emit_progress({
+                        "event": "batch_completed",
+                        "batch_type": "filter",
+                        "batch_name": filter_name,
+                        "batch_code": f"filter_{filter_name}",
+                        "total_batches": total_batches,
+                        "completed_batches": completed_batches,
+                        "added_count": results[f"filter_{filter_name}"],
+                        "request_delay_seconds": request_delay,
+                    })
                         
                 except Exception as e:
                     print(f"  Error: {e}")
                     results[f"filter_{filter_name}"] = 0
+                    completed_batches += 1
+                    emit_progress({
+                        "event": "batch_completed",
+                        "batch_type": "filter",
+                        "batch_name": filter_name,
+                        "batch_code": f"filter_{filter_name}",
+                        "total_batches": total_batches,
+                        "completed_batches": completed_batches,
+                        "added_count": 0,
+                        "request_delay_seconds": request_delay,
+                        "error": str(e),
+                    })
         
         total_added = sum(results.values())
         print(f"\nRecent fetch complete! Added {total_added} new articles.")
+        emit_progress({
+            "event": "refresh_completed",
+            "total_batches": total_batches,
+            "completed_batches": completed_batches,
+            "total_added": total_added,
+            "request_delay_seconds": request_delay,
+        })
         
         return results
     

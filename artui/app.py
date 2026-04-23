@@ -85,6 +85,10 @@ class ArxivReaderApp(App):
         self.current_results_type = None  # 'references', 'citations', or None
         self.last_refresh_time = None
         self.advanced_search_params = None
+        self.is_refreshing = False
+        self.refresh_progress_text = ""
+        self._refresh_spinner_frames = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+        self._refresh_spinner_index = 0
         
         # Set default theme
         self.dark = True
@@ -228,12 +232,12 @@ class ArxivReaderApp(App):
 
         # Update header status on mount
         self.update_header_status()
+        self.set_interval(0.15, self._tick_refresh_spinner)
 
         if self.config_manager.is_first_run:
             # On first run, hold off fetching until the user has edited their config
             self.call_after_refresh(self._show_first_run_popup)
         else:
-            self.notify("Refreshing articles...", title="Manual Refresh", timeout=3)
             self.manual_refresh_articles()
 
     def _show_first_run_popup(self) -> None:
@@ -251,7 +255,6 @@ class ArxivReaderApp(App):
         """Reload config and start fetching after the user confirms first-run setup."""
         self.config_manager.reload_config()
         await self._rebuild_sidebar_feed_section()
-        self.notify("Starting article fetch with your configuration...", timeout=4)
         self.manual_refresh_articles()
 
     def _open_config_in_editor(self) -> None:
@@ -412,9 +415,13 @@ class ArxivReaderApp(App):
         self.update_results_title()
         self.fetch_articles_from_db()
 
-    @work(exclusive=True, thread=True)
+    @work(exclusive=True, thread=True, group="refresh")
     def manual_refresh_articles(self) -> None:
         """Manual refresh task to fetch new articles and reload current view."""
+        self.call_from_thread(self._set_refreshing_state, True)
+        self.call_from_thread(self._set_refresh_progress_text, "Preparing refresh...")
+        self.call_from_thread(self._show_refresh_started_notification)
+        self.call_from_thread(self._show_refresh_loading_indicator)
         try:
             # Record refresh time
             import time
@@ -424,7 +431,11 @@ class ArxivReaderApp(App):
             self.config_manager.reload_config()
 
             # Fetch recent articles (same as startup)
-            results = self.fetcher.fetch_recent_articles(days=7, max_per_category=100)
+            results = self.fetcher.fetch_recent_articles(
+                days=7,
+                max_per_category=100,
+                progress_callback=self._handle_refresh_progress_from_worker,
+            )
             total_new = sum(results.values())
             
             # Reload the current view to show new articles
@@ -432,6 +443,7 @@ class ArxivReaderApp(App):
             self.call_from_thread(self.refresh_left_panel_counts)
             self.call_from_thread(self.update_header_status)
             
+            self.call_from_thread(self.clear_notifications)
             if total_new > 0:
                 self.call_from_thread(
                     self.notify, 
@@ -447,6 +459,7 @@ class ArxivReaderApp(App):
                     timeout=3
                 )
         except Exception as e:
+            self.call_from_thread(self.clear_notifications)
             self.call_from_thread(
                 self.notify,
                 f"Refresh error: {e}",
@@ -454,8 +467,11 @@ class ArxivReaderApp(App):
                 severity="warning",
                 timeout=5
             )
+        finally:
+            self.call_from_thread(self._set_refresh_progress_text, "")
+            self.call_from_thread(self._set_refreshing_state, False)
 
-    @work(exclusive=True, thread=True)
+    @work(exclusive=True, thread=True, group="results-load")
     def fetch_articles_from_arxiv(self) -> None:
         """Worker to fetch articles directly from arXiv API for global search."""
         abstract_view = self.query_one("#abstract_content", Static)
@@ -481,7 +497,7 @@ class ArxivReaderApp(App):
         self.call_from_thread(self._populate_table)
         self.call_from_thread(self.query_one("#results_table").focus)
     
-    @work(exclusive=True, thread=True)
+    @work(exclusive=True, thread=True, group="results-load")
     def fetch_articles_from_arxiv_advanced(self, search_params: Dict[str, Any]) -> None:
         """Worker to fetch articles from arXiv using advanced search parameters."""
         abstract_view = self.query_one("#abstract_content", Static)
@@ -513,7 +529,7 @@ class ArxivReaderApp(App):
         self.call_from_thread(self._populate_table)
         self.call_from_thread(self.query_one("#results_table").focus)
     
-    @work(exclusive=True, thread=True)
+    @work(exclusive=True, thread=True, group="results-load")
     def fetch_articles_by_references(self, inspire_ids: List[int]) -> None:
         """Worker to fetch articles by INSPIRE-HEP reference IDs."""
         from .ui.utils import get_arxiv_ids_from_inspire_ids
@@ -582,7 +598,7 @@ class ArxivReaderApp(App):
         self.call_from_thread(self.refresh_left_panel_counts)
         self.call_from_thread(self.query_one("#results_table").focus)
     
-    @work(exclusive=True, thread=True)
+    @work(exclusive=True, thread=True, group="results-load")
     def fetch_articles_by_citations(self, inspire_id: int) -> None:
         """Worker to fetch articles that cite the given INSPIRE-HEP record."""
         from .ui.utils import get_citing_articles_from_inspire_id
@@ -651,7 +667,7 @@ class ArxivReaderApp(App):
         self.call_from_thread(self.refresh_left_panel_counts)
         self.call_from_thread(self.query_one("#results_table").focus)
     
-    @work(exclusive=True, thread=True) 
+    @work(exclusive=True, thread=True, group="results-load")
     def fetch_articles_from_db(self) -> None:
         """Worker to fetch and display articles from database."""
         abstract_view = self.query_one("#abstract_content", Static)
@@ -1077,7 +1093,6 @@ class ArxivReaderApp(App):
 
     def action_refresh_articles(self) -> None:
         """Manually refresh and fetch new articles."""
-        self.notify("Refreshing articles...", title="Manual Refresh", timeout=3)
         self.manual_refresh_articles()
 
     def action_show_inspire_citation(self) -> None:
@@ -1747,6 +1762,105 @@ class ArxivReaderApp(App):
         status = table._build_status_string(article, table.current_is_global_search)
         table.update_cell_at(Coordinate(row_index, 0), status)
 
+    def _set_refreshing_state(self, is_refreshing: bool) -> None:
+        """Track whether a refresh is in progress and update header status."""
+        self.is_refreshing = is_refreshing
+        if not is_refreshing:
+            self._refresh_spinner_index = 0
+        self.update_header_status()
+
+    def _set_refresh_progress_text(self, text: str) -> None:
+        """Set detailed refresh progress text shown in the header status."""
+        self.refresh_progress_text = text
+        self.update_header_status()
+
+    def _show_refresh_started_notification(self) -> None:
+        """Show one long-lived refresh notification."""
+        self.clear_notifications()
+        self.notify(
+            "Refreshing articles... live progress is shown in the top header bar.",
+            title="Manual Refresh",
+            timeout=3600,
+        )
+
+    def _tick_refresh_spinner(self) -> None:
+        """Advance refresh spinner while refresh is active."""
+        if not self.is_refreshing:
+            return
+        self._refresh_spinner_index = (self._refresh_spinner_index + 1) % len(self._refresh_spinner_frames)
+        self.update_header_status()
+
+    def _handle_refresh_progress_from_worker(self, payload: Dict[str, Any]) -> None:
+        """Bridge fetcher progress updates from worker thread to UI thread."""
+        self.call_from_thread(self._apply_refresh_progress_update, payload)
+
+    def _apply_refresh_progress_update(self, payload: Dict[str, Any]) -> None:
+        """Convert structured refresh progress into a compact status message."""
+        event = payload.get("event")
+        total_batches = payload.get("total_batches", 0)
+        completed_batches = payload.get("completed_batches", 0)
+        delay_seconds = payload.get("request_delay_seconds")
+        delay_text = (
+            f", delay {delay_seconds:.1f}s/request"
+            if isinstance(delay_seconds, (int, float))
+            else ""
+        )
+
+        if event == "refresh_started":
+            self._set_refresh_progress_text(
+                f"Refresh 0/{total_batches} batches{delay_text}"
+            )
+            return
+
+        if event == "batch_started":
+            batch_type = payload.get("batch_type", "batch")
+            batch_name = payload.get("batch_name", "unknown")
+            current_batch = min(completed_batches + 1, total_batches) if total_batches else completed_batches + 1
+            self._set_refresh_progress_text(
+                f"Refreshing {current_batch}/{total_batches}: {batch_type} {batch_name}{delay_text}"
+            )
+            return
+
+        if event == "batch_completed":
+            batch_type = payload.get("batch_type", "batch")
+            batch_name = payload.get("batch_name", "unknown")
+            added_count = payload.get("added_count", 0)
+            maybe_error = payload.get("error")
+            error_suffix = " (error)" if maybe_error else ""
+            self._set_refresh_progress_text(
+                f"Done {completed_batches}/{total_batches}: {batch_type} {batch_name} (+{added_count}){error_suffix}{delay_text}"
+            )
+            return
+
+        if event == "refresh_completed":
+            total_added = payload.get("total_added", 0)
+            self._set_refresh_progress_text(
+                f"Refresh completed: +{total_added} new articles"
+            )
+            return
+
+    def _show_refresh_loading_indicator(self) -> None:
+        """Show a loading hint when refresh starts and the table is empty."""
+        try:
+            table = self.query_one("#results_table", ArticleTableWidget)
+            abstract_view = self.query_one("#abstract_content", Static)
+
+            if table.row_count == 0:
+                table.clear()
+                table.add_row(
+                    "⏳",
+                    "[italic]Refreshing articles...[/italic]",
+                    "[dim]Fetching from arXiv[/dim]",
+                    "[dim]Please wait[/dim]",
+                    "[dim]...[/dim]",
+                )
+                abstract_view.update(
+                    "Refreshing articles from arXiv. Results will appear when the sync completes."
+                )
+        except Exception:
+            # Avoid breaking refresh if the view is not ready yet.
+            pass
+
     async def _rebuild_sidebar_feed_section(self) -> None:
         """Rebuild the filters and categories sections in the sidebar from the current config.
         
@@ -1896,6 +2010,12 @@ class ArxivReaderApp(App):
             library_count = self.db.get_saved_articles_count()
             
             status_text = f"Feed: {feed_count} articles  Library: {library_count} articles"
+            if self.is_refreshing:
+                spinner = self._refresh_spinner_frames[self._refresh_spinner_index]
+                if self.refresh_progress_text:
+                    status_text += f"  |  [bold yellow]{spinner} {self.refresh_progress_text}[/]"
+                else:
+                    status_text += f"  |  [bold yellow]{spinner} Refreshing...[/]"
             
             # Add last refresh time if available
             if self.last_refresh_time:

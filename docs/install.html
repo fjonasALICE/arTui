@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Install arTui - arXiv reader in terminal</title>
+  <meta
+    name="description"
+    content="Install arTui with pipx or pip and start tracking arXiv papers from your terminal."
+  />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="container">
+    <nav class="nav" aria-label="Primary">
+      <a href="index.html">Home</a>
+      <a class="active" href="install.html">Install</a>
+      <a href="faq.html">FAQ</a>
+    </nav>
+
+    <section class="hero">
+      <span class="badge">Quick setup</span>
+      <h1>Install arTui in under a minute</h1>
+      <p>The easiest way is <code>pipx</code> for an isolated CLI install.</p>
+      <p><code>pipx install artui</code></p>
+      <p>Then launch the app with <code>artui</code>.</p>
+    </section>
+
+    <section class="card" style="margin-top: 1rem;">
+      <h2>Alternative with pip</h2>
+      <p><code>pip install artui</code></p>
+    </section>
+
+    <section class="card" style="margin-top: 0.7rem;">
+      <h2>From source</h2>
+      <p><code>git clone https://github.com/fjonasALICE/arTui</code></p>
+      <p><code>cd arTui</code></p>
+      <p><code>pip install -e .</code></p>
+    </section>
+
+    <section class="card" style="margin-top: 0.7rem;">
+      <h2>After first launch</h2>
+      <ul>
+        <li>Set categories in the config wizard.</li>
+        <li>Refresh articles with <code>r</code>.</li>
+        <li>Save interesting papers to your library.</li>
+      </ul>
+    </section>
+
+    <footer>
+      Need details? See the full documentation in the GitHub README.
+    </footer>
+  </main>
+</body>
+</html>

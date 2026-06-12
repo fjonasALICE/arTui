@@ -5,7 +5,7 @@ A modern TUI application for researchers to stay up-to-date with recent publicat
 in their field, featuring persistent local database, tag management, notes, and more.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.2"
 __author__ = "Florian Jonas"
 __email__ = "florian.jonas@cern.ch"
 __description__ = "A Terminal User Interface for browsing arXiv papers"

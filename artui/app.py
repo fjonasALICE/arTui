@@ -46,8 +46,8 @@ class ArxivReaderApp(App):
     CSS_PATH = "main.css"
     TITLE = "ArTui"
     ENABLE_COMMAND_PALETTE = False
-    
-    BINDINGS = [
+
+    DEFAULT_BINDINGS = [
         ("s", "save_article", "Save/Unsave"),
         ("u", "mark_unread", "Mark Unread"),
         ("o", "download_and_open_pdf", "Open PDF"),
@@ -63,16 +63,23 @@ class ArxivReaderApp(App):
         ("x", "mark_all_read", "Mark All Read"),
         ("q", "quit", "Quit"),
     ]
+    BINDINGS = DEFAULT_BINDINGS
 
     def __init__(self, config_path: Optional[str] = None, db_path: Optional[str] = None, 
                  custom_user_dir: Optional[str] = None, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        
         # Initialize user directories first
         self.user_dirs = get_user_dirs(custom_user_dir)
         
         # Initialize managers
         self.config_manager = ConfigManager(config_path, custom_user_dir)
+        configured_bindings = self._build_bindings_from_config(self.config_manager.get_config())
+        # Textual resolves app bindings from class-level BINDINGS during init.
+        self.__class__.BINDINGS = configured_bindings
+        self.BINDINGS = configured_bindings
+
+        super().__init__(*args, **kwargs)
+        self._apply_configured_bindings_runtime(configured_bindings)
+
         self.db = ArticleDatabase(db_path, custom_user_dir)
         self.fetcher = ArticleFetcher(self.db, self.config_manager)
         
@@ -101,6 +108,41 @@ class ArxivReaderApp(App):
         
         # Run cleanup routine to remove old unsaved articles
         self._run_cleanup_routine()
+
+    def _build_bindings_from_config(self, config: Dict[str, Any]) -> List[tuple]:
+        """Build app key bindings from config with defaults as fallback."""
+        configured_shortcuts = config.get("keyboard_shortcuts", {})
+        if not isinstance(configured_shortcuts, dict):
+            configured_shortcuts = {}
+
+        default_key_by_action = {
+            action: key for key, action, _ in self.DEFAULT_BINDINGS
+        }
+
+        bindings = []
+        for _, action, description in self.DEFAULT_BINDINGS:
+            key = configured_shortcuts.get(action, default_key_by_action[action])
+            bindings.append((key, action, description))
+        return bindings
+
+    def _apply_configured_bindings_runtime(self, configured_bindings: List[tuple]) -> None:
+        """Replace default app action bindings in Textual's runtime binding map."""
+        if not hasattr(self, "_bindings") or not hasattr(self._bindings, "key_to_bindings"):
+            return
+
+        managed_actions = {action for _, action, _ in self.DEFAULT_BINDINGS}
+        key_to_bindings = self._bindings.key_to_bindings
+
+        for key in list(key_to_bindings.keys()):
+            bindings = key_to_bindings.get(key, [])
+            remaining = [binding for binding in bindings if binding.action not in managed_actions]
+            if remaining:
+                key_to_bindings[key] = remaining
+            else:
+                del key_to_bindings[key]
+
+        for key, action, description in configured_bindings:
+            self.bind(key, action, description=description, show=True)
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -211,6 +253,9 @@ class ArxivReaderApp(App):
 
     def on_mount(self) -> None:
         """Call after the app is mounted."""
+        if hasattr(self, "refresh_bindings"):
+            self.refresh_bindings()
+
         table = self.query_one("#results_table", ArticleTableWidget)
 
         # Automatically select "Unread" as the default view

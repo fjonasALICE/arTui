@@ -179,6 +179,8 @@ The application will:
 
 ### Key Bindings
 
+These bindings are configurable in `config.yaml` via the optional `keyboard_shortcuts` section. If omitted, defaults below are used.
+
 | Key | Action |
 |-----|--------|
 | `s` | Save/Unsave the selected article |
@@ -196,6 +198,25 @@ The application will:
 | `↑/↓` | Navigate article list |
 | `Enter` | Select article (shows abstract) |
 | `Mouse` | Click to navigate and select |
+
+All possible `keyboard_shortcuts` overrides:
+
+```yaml
+keyboard_shortcuts:
+  save_article: s
+  mark_unread: u
+  download_and_open_pdf: o
+  open_arxiv_link: l
+  focus_search: f
+  global_search_and_focus: g
+  show_selection_popup: c
+  refresh_articles: r
+  show_inspire_citation: i
+  manage_tags: t
+  manage_notes: n
+  mark_all_read: x
+  quit: q
+```
 
 ### Status Indicators
 

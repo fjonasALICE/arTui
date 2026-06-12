@@ -10,6 +10,22 @@ from .user_dirs import get_user_dirs
 
 class ConfigManager:
     """Manages configuration loading and default values for ArTui."""
+
+    DEFAULT_KEYBOARD_SHORTCUTS = {
+        "save_article": "s",
+        "mark_unread": "u",
+        "download_and_open_pdf": "o",
+        "open_arxiv_link": "l",
+        "focus_search": "f",
+        "global_search_and_focus": "g",
+        "show_selection_popup": "c",
+        "refresh_articles": "r",
+        "show_inspire_citation": "i",
+        "manage_tags": "t",
+        "manage_notes": "n",
+        "mark_all_read": "x",
+        "quit": "q",
+    }
     
     DEFAULT_CONFIG = {
         "feed_retention_days": 30,  # Articles older than this are hidden from feed views unless unread
@@ -28,7 +44,8 @@ class ConfigManager:
                 "categories": ["hep-ex", "hep-ph"],
                 "query": "qgp OR quark gluon plasma OR quark-gluon plasma OR heavy-ion"
             }
-        }
+        },
+        "keyboard_shortcuts": DEFAULT_KEYBOARD_SHORTCUTS,
     }
 
     @staticmethod
@@ -215,6 +232,36 @@ class ConfigManager:
             normalized_filters[clean_name] = normalized_filter_config
 
         config["filters"] = normalized_filters
+        raw_shortcuts = config.get("keyboard_shortcuts", {})
+        if raw_shortcuts is None:
+            raw_shortcuts = {}
+        elif not isinstance(raw_shortcuts, dict):
+            self._warn_config(
+                f"'keyboard_shortcuts' must be a mapping, got {type(raw_shortcuts).__name__}; using defaults"
+            )
+            raw_shortcuts = {}
+
+        normalized_shortcuts: Dict[str, str] = {}
+        for action_name, default_key in self.DEFAULT_KEYBOARD_SHORTCUTS.items():
+            raw_key = raw_shortcuts.get(action_name, default_key)
+            if not isinstance(raw_key, str) or not raw_key.strip():
+                self._warn_config(
+                    f"'keyboard_shortcuts.{action_name}' must be a non-empty string; using default '{default_key}'"
+                )
+                raw_key = default_key
+            normalized_shortcuts[action_name] = raw_key.strip()
+
+        unknown_shortcuts = [
+            action_name
+            for action_name in raw_shortcuts
+            if action_name not in self.DEFAULT_KEYBOARD_SHORTCUTS
+        ]
+        for action_name in unknown_shortcuts:
+            self._warn_config(
+                f"unknown keyboard shortcut action '{action_name}' ignored"
+            )
+
+        config["keyboard_shortcuts"] = normalized_shortcuts
         return config
     
     def create_default_config(self) -> None:
